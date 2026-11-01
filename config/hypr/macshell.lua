@@ -19,6 +19,8 @@ local shellkeys = {
     { "SUPER + Space",  qs .. "spotlight toggle"    },
     { "ALT + TAB",      qs .. "switcher next"       },
     { "CTRL + ALT + W", qs .. "wallpapers toggle"   },
+    { "SUPER + D",      qs .. "annotate toggle"     },
+    { "SUPER + C",      qs .. "annotate clear"      },
     { "SUPER + L",      "sh ~/.config/quickshell/MacLock/lock-via-ipc.sh" },
 }
 pcall(hl.unbind, "PRINT")
@@ -26,6 +28,16 @@ for _, k in ipairs(shellkeys) do
     pcall(hl.unbind, k[1])
     hl.bind(k[1], hl.dsp.exec_cmd(k[2]))
 end
+
+-- Whiteboard window rule: centered floating panel with smooth rounded corners
+pcall(hl.window_rule, {
+    name  = "macshell-whiteboard",
+    match = { title = "MacShell Whiteboard" },
+    float = true,
+    center = true,
+    rounding = 22,
+    border_size = 0,
+})
 
 -- Hardware keys (laptop buttons too): volume, mute, brightness, media. MacShell handles them itself and shows its
 -- on-screen display. If the shell is not running, wpctl / brightnessctl do the work instead.

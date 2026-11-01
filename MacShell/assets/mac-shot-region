@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Apple-style interactive region screenshot (Cmd/SUPER + Shift + 4)
+DIR="$HOME/Pictures/Screenshots"
+mkdir -p "$DIR"
+FILE="$DIR/Screenshot-$(date +%F_%H-%M-%S).png"
+
+# Interactive region selection with slurp (Esc to cancel)
+GEOM=$(slurp -d -b "#00000066" -c "#33ccffee" -s "#ffffff15") || exit 0
+
+if [ -n "$GEOM" ]; then
+    if grim -g "$GEOM" "$FILE"; then
+        wl-copy --type image/png < "$FILE"
+        notify-send -a "macOS Screenshot" -i "$FILE" "Region Screenshot Saved" "Copied to clipboard and saved to:\n$FILE"
+        if [ -f "$HOME/.local/share/sounds/macshell/shutter.wav" ]; then
+            pw-play "$HOME/.local/share/sounds/macshell/shutter.wav" >/dev/null 2>&1 &
+        fi
+    fi
+fi

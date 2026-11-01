@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Screen recording toggle with wf-recorder (Alt + F3)
+DIR="$HOME/Videos/Recordings"
+mkdir -p "$DIR"
+
+# If already recording, stop it cleanly with SIGINT so the MP4 finalizes
+if pgrep -x wf-recorder >/dev/null; then
+    killall -s SIGINT wf-recorder
+    notify-send -a "Screen Recorder" -i media-playback-stop "Recording Stopping..." "Finalizing and saving video..."
+    exit 0
+fi
+
+# Interactive selection of area to record (Esc to cancel)
+GEOM=$(slurp -d -b "#00000066" -c "#ff3366ee" -s "#ffffff15") || exit 0
+if [ -z "$GEOM" ]; then
+    exit 0
+fi
+
+FILE="$DIR/Recording-$(date +%F_%H-%M-%S).mp4"
+notify-send -a "Screen Recorder" -i media-record "Recording Started" "Press Alt + F3 again to stop."
+
+# Start recording in background with audio and universal MP4 pixel format
+wf-recorder --audio --pixel-format yuv420p -g "$GEOM" -f "$FILE" >/dev/null 2>&1 &
+REC_PID=$!
+
+(
+    wait $REC_PID
+    if [ -f "$FILE" ]; then
+        notify-send -a "Screen Recorder" -i video-x-generic "Recording Saved" "Saved to:\n$FILE"
+    fi
+) &

@@ -1,0 +1,184 @@
+#!/usr/bin/env python3
+import sys
+import os
+import glob
+import re
+import json
+import subprocess
+import time
+
+def get_playlists():
+    results = []
+    seen = set()
+
+    # 1. Optional user bookmarks in ~/.config/macshell/playlists.json
+    cfg_path = os.path.expanduser("~/.config/macshell/playlists.json")
+    if os.path.exists(cfg_path):
+        try:
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                custom = json.load(f)
+                if isinstance(custom, list):
+                    for item in custom:
+                        uri = item.get("uri", "")
+                        name = item.get("name", "")
+                        if uri and name and uri not in seen:
+                            seen.add(uri)
+                            results.append({
+                                "uri": uri,
+                                "name": name,
+                                "image": item.get("image", "")
+                            })
+        except Exception:
+            pass
+
+    # 2. Always include Liked Songs at the top
+    liked_uri = "spotify:collection:tracks"
+    if liked_uri not in seen:
+        seen.add(liked_uri)
+        results.append({
+            "uri": liked_uri,
+            "name": "Liked Songs",
+            "image": "https://misc.scdn.co/liked-songs/liked-songs-300.png"
+        })
+
+    # 3. Zero-auth local Spotify LevelDB cache parser
+    ldb_files = glob.glob(os.path.expanduser("~/.cache/spotify/Users/*/primary.ldb/*"))
+    # Sort newest first so latest metadata wins
+    ldb_files.sort(key=lambda p: os.path.getmtime(p) if os.path.exists(p) else 0, reverse=True)
+
+    meta = {}
+    marker_re = re.compile(rb"pl#attr#'(spotify:playlist:[a-zA-Z0-9]{22})#")
+    img_re = re.compile(rb"https://[a-zA-Z0-9._/-]*(?:scdn\.co|spotifycdn\.com)[a-zA-Z0-9._/-]*")
+    hash_re = re.compile(rb"(ab67[0-9a-f]{36})")
+
+    for path in ldb_files:
+        if not os.path.isfile(path):
+            continue
+        try:
+            with open(path, "rb") as f:
+                data = f.read()
+        except Exception:
+            continue
+
+        for m in marker_re.finditer(data):
+            uri = m.group(1).decode("ascii", errors="ignore")
+            chunk = data[m.end():m.end() + 450]
+            name = ""
+            idx = chunk.find(b"\x0a")
+            if idx != -1 and idx < 24 and idx + 2 < len(chunk):
+                length = chunk[idx + 1]
+                if 1 < length < 120 and idx + 2 + length <= len(chunk):
+                    raw_name = chunk[idx + 2:idx + 2 + length]
+                    try:
+                        cand = raw_name.decode("utf-8").strip()
+                        # Filter out internal LevelDB keys or non-printable tokens
+                        if (
+                            len(cand) >= 2
+                            and "!" not in cand
+                            and "xmeta#" not in cand
+                            and "cache#" not in cand
+                            and not any(ord(c) < 32 for c in cand)
+                        ):
+                            name = cand
+                    except Exception:
+                        pass
+
+            im = img_re.search(chunk)
+            img = ""
+            if im:
+                pos = im.start()
+                raw_url = im.group(0).decode("ascii", errors="ignore")
+                # Check protobuf 1-byte or 2-byte varint string length preceding https://
+                exact_len = None
+                if pos >= 2 and (chunk[pos - 2] & 0x80) and chunk[pos - 1] < 4:
+                    cand_len = (chunk[pos - 2] & 0x7F) | (chunk[pos - 1] << 7)
+                    if 20 <= cand_len <= len(raw_url):
+                        exact_len = cand_len
+                if exact_len is None and pos >= 1 and 20 <= chunk[pos - 1] < 0x80 and chunk[pos - 1] <= len(raw_url):
+                    exact_len = chunk[pos - 1]
+                img = raw_url[:exact_len] if exact_len else raw_url
+                img = re.sub(r"(\.(?:png|jpe?g|webp))[A-Za-z0-9]+$", r"\1", img)
+                if "i.scdn.co/image/" in img:
+                    m_scdn = re.match(r"^(https://i\.scdn\.co/image/ab67[0-9a-f]{36})", img)
+                    img = m_scdn.group(1) if m_scdn else ""
+                elif "spotifycdn.com/" in img and len(img) < 48:
+                    img = ""
+            if not img:
+                hm = hash_re.search(chunk)
+                if hm:
+                    img = "https://i.scdn.co/image/" + hm.group(1).decode("ascii")
+
+            if uri not in meta:
+                meta[uri] = {"uri": uri, "name": name, "image": img}
+            else:
+                if not meta[uri]["name"] and name:
+                    meta[uri]["name"] = name
+                if not meta[uri]["image"] and img:
+                    meta[uri]["image"] = img
+
+    seen_names = {r["name"].lower() for r in results}
+    for uri, item in meta.items():
+        nm = item["name"]
+        if nm and uri not in seen and nm.lower() not in seen_names:
+            seen.add(uri)
+            seen_names.add(nm.lower())
+            results.append(item)
+
+    return results
+
+def spotify_running():
+    try:
+        res = subprocess.run(
+            [
+                "dbus-send", "--session", "--print-reply",
+                "--dest=org.freedesktop.DBus", "/org/freedesktop/DBus",
+                "org.freedesktop.DBus.NameHasOwner", "string:org.mpris.MediaPlayer2.spotify"
+            ],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=2
+        )
+        return "boolean true" in res.stdout
+    except Exception:
+        return False
+
+def open_uri_dbus(uri):
+    subprocess.run(
+        [
+            "dbus-send", "--session", "--print-reply",
+            "--dest=org.mpris.MediaPlayer2.spotify",
+            "/org/mpris/MediaPlayer2",
+            "org.mpris.MediaPlayer2.Player.OpenUri",
+            f"string:{uri}"
+        ],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3
+    )
+
+def play_uri(uri):
+    if spotify_running():
+        open_uri_dbus(uri)
+        return {"ok": True, "action": "dbus_open_uri", "uri": uri}
+
+    # Launch Spotify silently in special workspace so it doesn't interrupt the user's workspace
+    subprocess.Popen(
+        ["hyprctl", "dispatch", "exec", f"[workspace special:spotify silent] spotify-launcher --uri={uri}"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+    )
+    # Wait up to 8 seconds for Spotify MPRIS to register, then ensure URI is opened
+    for _ in range(16):
+        time.sleep(0.5)
+        if spotify_running():
+            time.sleep(0.4)
+            open_uri_dbus(uri)
+            break
+    return {"ok": True, "action": "launched_spotify", "uri": uri}
+
+def main():
+    cmd = sys.argv[1] if len(sys.argv) > 1 else "playlists"
+    if cmd == "playlists":
+        print(json.dumps(get_playlists(), ensure_ascii=False))
+    elif cmd == "play-uri" and len(sys.argv) > 2:
+        print(json.dumps(play_uri(sys.argv[2])))
+    else:
+        print(json.dumps({"error": f"Unknown command: {cmd}"}))
+
+if __name__ == "__main__":
+    main()

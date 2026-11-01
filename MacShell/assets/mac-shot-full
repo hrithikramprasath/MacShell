@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Apple-style full screen screenshot (Cmd/SUPER + Shift + 3)
+DIR="$HOME/Pictures/Screenshots"
+mkdir -p "$DIR"
+FILE="$DIR/Screenshot-$(date +%F_%H-%M-%S).png"
+
+if grim "$FILE"; then
+    wl-copy --type image/png < "$FILE"
+    notify-send -a "macOS Screenshot" -i "$FILE" "Screenshot Saved" "Copied to clipboard and saved to:\n$FILE"
+    if [ -f "$HOME/.local/share/sounds/macshell/shutter.wav" ]; then
+        pw-play "$HOME/.local/share/sounds/macshell/shutter.wav" >/dev/null 2>&1 &
+    fi
+fi

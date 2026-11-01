@@ -1677,26 +1677,17 @@ install_extras() {
         ok "installer -> $LINK_DIR/macshell-install"
     fi
 
-    # helper tools: mac-earbuds-ctl, mac-discord-ctl, macshell-sync-upstream, spatial audio & daemon
+    # helper tools: mac-earbuds-ctl, mac-discord-ctl, mac-media-ctl, mac-shot-full, mac-shot-region, mac-record-toggle, macshell-sync-upstream, spatial audio & daemon
     mkdir -p "$LINK_DIR" "$ENV_DIR" "$UNIT_DIR"
-    local ctl=""
-    ctl=$(find "$root" -type f -name mac-earbuds-ctl -not -path '*/.git/*' 2>/dev/null | head -n1 || true)
-    if [ -n "$ctl" ]; then
-        install -m 755 "$ctl" "$LINK_DIR/mac-earbuds-ctl"
-        ok "earbuds controller -> $LINK_DIR/mac-earbuds-ctl"
-    fi
-    local dctl=""
-    dctl=$(find "$root" -type f -name mac-discord-ctl -not -path '*/.git/*' 2>/dev/null | head -n1 || true)
-    if [ -n "$dctl" ]; then
-        install -m 755 "$dctl" "$LINK_DIR/mac-discord-ctl"
-        ok "discord helper -> $LINK_DIR/mac-discord-ctl"
-    fi
-    local ssync=""
-    ssync=$(find "$root" -type f -name macshell-sync-upstream -not -path '*/.git/*' 2>/dev/null | head -n1 || true)
-    if [ -n "$ssync" ]; then
-        install -m 755 "$ssync" "$LINK_DIR/macshell-sync-upstream"
-        ok "upstream sync tool -> $LINK_DIR/macshell-sync-upstream"
-    fi
+    local tools=(mac-earbuds-ctl mac-discord-ctl mac-media-ctl mac-shot-full mac-shot-region mac-record-toggle macshell-sync-upstream)
+    for t in "${tools[@]}"; do
+        local fpath=""
+        fpath=$(find "$root" -type f -name "$t" -not -path '*/.git/*' 2>/dev/null | head -n1 || true)
+        if [ -n "$fpath" ]; then
+            install -m 755 "$fpath" "$LINK_DIR/$t"
+            ok "helper tool -> $LINK_DIR/$t"
+        fi
+    done
     local sofa=""
     sofa=$(find "$root" -type f -name spatial-sofa.conf -not -path '*/.git/*' 2>/dev/null | head -n1 || true)
     if [ -n "$sofa" ] && [ ! -f "$ENV_DIR/spatial-sofa.conf" ]; then
@@ -1712,6 +1703,17 @@ install_extras() {
             systemctl --user daemon-reload 2>/dev/null || true
             systemctl --user enable --now macshell-earbuds-sync.service 2>/dev/null || true
             ok "earbuds sync service enabled"
+        fi
+    fi
+    local msvc=""
+    msvc=$(find "$root" -type f -name macshell.service -not -path '*/.git/*' 2>/dev/null | head -n1 || true)
+    if [ -n "$msvc" ]; then
+        install -m 644 "$msvc" "$UNIT_DIR/macshell.service"
+        ok "macshell desktop service -> $UNIT_DIR/macshell.service"
+        if have systemctl && systemctl --user show-environment >/dev/null 2>&1; then
+            systemctl --user daemon-reload 2>/dev/null || true
+            systemctl --user enable --now macshell.service 2>/dev/null || true
+            ok "macshell desktop service enabled"
         fi
     fi
 }
@@ -1778,6 +1780,8 @@ local shellkeys = {
     { "SUPER + Space",  qs .. "spotlight toggle"    },
     { "ALT + TAB",      qs .. "switcher next"       },
     { "CTRL + ALT + W", qs .. "wallpapers toggle"   },
+    { "SUPER + D",      qs .. "annotate toggle"     },
+    { "SUPER + C",      qs .. "annotate clear"      },
     { "SUPER + L",      "sh ~/.config/quickshell/MacLock/lock-via-ipc.sh" },
 }
 pcall(hl.unbind, "PRINT")
@@ -1785,6 +1789,16 @@ for _, k in ipairs(shellkeys) do
     pcall(hl.unbind, k[1])
     hl.bind(k[1], hl.dsp.exec_cmd(k[2]))
 end
+
+-- Whiteboard window rule: centered floating panel with smooth rounded corners
+pcall(hl.window_rule, {
+    name  = "macshell-whiteboard",
+    match = { title = "MacShell Whiteboard" },
+    float = true,
+    center = true,
+    rounding = 22,
+    border_size = 0,
+})
 
 -- Hardware keys (laptop buttons too): volume, mute, brightness, media. MacShell handles them itself and shows its
 -- on-screen display. If the shell is not running, wpctl / brightnessctl do the work instead.

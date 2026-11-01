@@ -555,6 +555,20 @@ hl.window_rule({
     float = true,
 })
 
+-- Whiteboard (MacShell): Super+D toggles whiteboard, Super+C clears
+local anno_qs = "qs -c MacShell ipc call annotate "
+hl.bind(mainMod .. " + D", hl.dsp.exec_cmd(anno_qs .. "toggle"))
+hl.bind(mainMod .. " + C", hl.dsp.exec_cmd(anno_qs .. "clear"))
+
+hl.window_rule({
+    name  = "macshell-whiteboard",
+    match = { title = "MacShell Whiteboard" },
+    float = true,
+    center = true,
+    rounding = 22,
+    border_size = 0,
+})
+
 -- >>> MacShell (added by install.sh) >>>
 -- Load the generated MacShell autostart and keybind module.
 package.loaded["macshell"] = nil

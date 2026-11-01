@@ -64,7 +64,8 @@ ARCH_PKGS=(
     git base-devel hyprland hypridle
     pipewire wireplumber pipewire-pulse pipewire-alsa libmysofa
     bluez bluez-utils usb_modeswitch networkmanager
-    python python-pip playerctl brightnessctl libnotify
+    python python-pip playerctl brightnessctl ddcutil libnotify
+    grim slurp wf-recorder wl-clipboard
     socat jq inotify-tools imagemagick
     nautilus kitty papirus-icon-theme
     qt6-base qt6-declarative qt6-multimedia qt6-shadertools qt6-wayland qt6-svg
@@ -186,7 +187,11 @@ fi
 
 # Ensure Hyprland Lua configuration has proper reload guard
 LUA_CONF="${HOME}/.config/hypr/hyprland.lua"
-if [ -f "$LUA_CONF" ]; then
+if [ ! -f "$LUA_CONF" ] && [ -f "$REPO_DIR/config/hypr/hyprland.lua" ]; then
+    log_info "Deploying starter MacShell Hyprland Lua configuration..."
+    install -m 644 "$REPO_DIR/config/hypr/hyprland.lua" "$LUA_CONF"
+    log_ok "Installed ~/.config/hypr/hyprland.lua"
+elif [ -f "$LUA_CONF" ]; then
     if grep -qF 'require("macshell")' "$LUA_CONF" && ! grep -qF 'package.loaded["macshell"] = nil' "$LUA_CONF"; then
         sed -i 's/require("macshell")/package.loaded["macshell"] = nil\nrequire("macshell")/' "$LUA_CONF"
         log_ok "Added config reload keybind fix to hyprland.lua"
@@ -196,13 +201,14 @@ fi
 # 7. Install Helper Tools & Upstream Sync Utility
 log_step "Installing helper tools into ~/.local/bin..."
 mkdir -p "${HOME}/.local/bin" "${HOME}/.config/macshell" "${HOME}/.config/systemd/user"
-cp -f "$REPO_DIR/MacShell/assets/mac-discord-ctl" "${HOME}/.local/bin/mac-discord-ctl"
-cp -f "$REPO_DIR/MacShell/assets/mac-earbuds-ctl" "${HOME}/.local/bin/mac-earbuds-ctl"
-cp -f "$REPO_DIR/bin/macshell-sync-upstream" "${HOME}/.local/bin/macshell-sync-upstream"
-[ -f "$REPO_DIR/MacShell/assets/spatial-sofa.conf" ] && cp -f "$REPO_DIR/MacShell/assets/spatial-sofa.conf" "${HOME}/.config/macshell/spatial-sofa.conf"
-[ -f "$REPO_DIR/MacShell/assets/macshell-earbuds-sync.service" ] && cp -f "$REPO_DIR/MacShell/assets/macshell-earbuds-sync.service" "${HOME}/.config/systemd/user/macshell-earbuds-sync.service"
-chmod +x "${HOME}/.local/bin/mac-discord-ctl" "${HOME}/.local/bin/mac-earbuds-ctl" "${HOME}/.local/bin/macshell-sync-upstream"
-log_ok "Installed macshell-sync-upstream, mac-discord-ctl, and mac-earbuds-ctl"
+for tool in mac-discord-ctl mac-earbuds-ctl mac-media-ctl mac-shot-full mac-shot-region mac-record-toggle; do
+    [ -f "$REPO_DIR/MacShell/assets/$tool" ] && install -m 755 "$REPO_DIR/MacShell/assets/$tool" "${HOME}/.local/bin/$tool"
+done
+[ -f "$REPO_DIR/bin/macshell-sync-upstream" ] && install -m 755 "$REPO_DIR/bin/macshell-sync-upstream" "${HOME}/.local/bin/macshell-sync-upstream"
+[ -f "$REPO_DIR/MacShell/assets/spatial-sofa.conf" ] && install -m 644 "$REPO_DIR/MacShell/assets/spatial-sofa.conf" "${HOME}/.config/macshell/spatial-sofa.conf"
+[ -f "$REPO_DIR/MacShell/assets/macshell-earbuds-sync.service" ] && install -m 644 "$REPO_DIR/MacShell/assets/macshell-earbuds-sync.service" "${HOME}/.config/systemd/user/macshell-earbuds-sync.service"
+[ -f "$REPO_DIR/config/systemd/macshell.service" ] && install -m 644 "$REPO_DIR/config/systemd/macshell.service" "${HOME}/.config/systemd/user/macshell.service"
+log_ok "Installed helper tools and utilities into ~/.local/bin"
 
 # Ensure ~/.local/bin is in PATH for future shells
 if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
@@ -214,6 +220,7 @@ log_step "Enabling automated services and timers..."
 systemctl --user daemon-reload 2>/dev/null || true
 systemctl --user enable --now macshell-update.timer 2>/dev/null || true
 systemctl --user enable --now macshell-earbuds-sync.service 2>/dev/null || true
+systemctl --user enable --now macshell.service 2>/dev/null || true
 log_ok "Services and timers active"
 
 # 9. Reload Hyprland and Start Shell
@@ -240,9 +247,12 @@ echo ""
 echo "Key shortcuts configured:"
 echo "  • SUPER + Space        : Spotlight Search"
 echo "  • SUPER + Z            : MacShell Settings & Hub"
+echo "  • SUPER + D            : MacShell Whiteboard"
+echo "  • SUPER + C            : Instant Clear Whiteboard"
 echo "  • SUPER + V            : Spotlight Clipboard History"
 echo "  • SUPER + .            : Emoji Picker"
 echo "  • SUPER + L            : MacLock Lock Screen"
+echo "  • ALT + F1 / F2 / F3   : Fullscreen / Region Screenshot / Screen Record"
 echo "  • SUPER + SHIFT + V    : Toggle Window Float"
 echo "  • SUPER + R            : Spotlight App Launcher"
 echo ""
