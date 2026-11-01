@@ -35,9 +35,11 @@ MACSHELL_REPO="hrithikramprasath/MacShell" MACSHELL_BRANCH="main" MACSHELL_CHANN
     bash "$REPO_DIR/install.sh" --update --yes --no-deps --from-dir "$REPO_DIR" --resolved-id "$SHA" --resolved-type "branch"
 
 # Ensure local binaries and helpers are synced
-mkdir -p "$HOME/.local/bin"
+mkdir -p "$HOME/.local/bin" "$HOME/.config/macshell" "$HOME/.config/systemd/user"
 [ -f "$REPO_DIR/MacShell/assets/mac-discord-ctl" ] && cp -f "$REPO_DIR/MacShell/assets/mac-discord-ctl" "$HOME/.local/bin/mac-discord-ctl" && chmod +x "$HOME/.local/bin/mac-discord-ctl"
 [ -f "$REPO_DIR/MacShell/assets/mac-earbuds-ctl" ] && cp -f "$REPO_DIR/MacShell/assets/mac-earbuds-ctl" "$HOME/.local/bin/mac-earbuds-ctl" && chmod +x "$HOME/.local/bin/mac-earbuds-ctl"
 [ -f "$REPO_DIR/bin/macshell-sync-upstream" ] && cp -f "$REPO_DIR/bin/macshell-sync-upstream" "$HOME/.local/bin/macshell-sync-upstream" && chmod +x "$HOME/.local/bin/macshell-sync-upstream"
+[ -f "$REPO_DIR/MacShell/assets/spatial-sofa.conf" ] && cp -f "$REPO_DIR/MacShell/assets/spatial-sofa.conf" "$HOME/.config/macshell/spatial-sofa.conf"
+[ -f "$REPO_DIR/MacShell/assets/macshell-earbuds-sync.service" ] && cp -f "$REPO_DIR/MacShell/assets/macshell-earbuds-sync.service" "$HOME/.config/systemd/user/macshell-earbuds-sync.service" && systemctl --user daemon-reload 2>/dev/null && systemctl --user enable --now macshell-earbuds-sync.service 2>/dev/null || true
 
 echo "  ✓ Upstream changes seamlessly merged and live!"

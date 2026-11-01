@@ -188,10 +188,12 @@ fi
 
 # 7. Install Helper Tools & Upstream Sync Utility
 log_step "Installing helper tools into ~/.local/bin..."
-mkdir -p "${HOME}/.local/bin"
+mkdir -p "${HOME}/.local/bin" "${HOME}/.config/macshell" "${HOME}/.config/systemd/user"
 cp -f "$REPO_DIR/MacShell/assets/mac-discord-ctl" "${HOME}/.local/bin/mac-discord-ctl"
 cp -f "$REPO_DIR/MacShell/assets/mac-earbuds-ctl" "${HOME}/.local/bin/mac-earbuds-ctl"
 cp -f "$REPO_DIR/bin/macshell-sync-upstream" "${HOME}/.local/bin/macshell-sync-upstream"
+[ -f "$REPO_DIR/MacShell/assets/spatial-sofa.conf" ] && cp -f "$REPO_DIR/MacShell/assets/spatial-sofa.conf" "${HOME}/.config/macshell/spatial-sofa.conf"
+[ -f "$REPO_DIR/MacShell/assets/macshell-earbuds-sync.service" ] && cp -f "$REPO_DIR/MacShell/assets/macshell-earbuds-sync.service" "${HOME}/.config/systemd/user/macshell-earbuds-sync.service"
 chmod +x "${HOME}/.local/bin/mac-discord-ctl" "${HOME}/.local/bin/mac-earbuds-ctl" "${HOME}/.local/bin/macshell-sync-upstream"
 log_ok "Installed macshell-sync-upstream, mac-discord-ctl, and mac-earbuds-ctl"
 
@@ -200,11 +202,12 @@ if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
     export PATH="$HOME/.local/bin:$PATH"
 fi
 
-# 8. Configure Systemd Auto-Update Service & Timer
-log_step "Enabling automated daily updates from fork..."
+# 8. Configure Systemd Services & Timers
+log_step "Enabling automated services and timers..."
 systemctl --user daemon-reload 2>/dev/null || true
 systemctl --user enable --now macshell-update.timer 2>/dev/null || true
-log_ok "Daily update timer active"
+systemctl --user enable --now macshell-earbuds-sync.service 2>/dev/null || true
+log_ok "Services and timers active"
 
 # 9. Reload Hyprland and Start Shell
 log_step "Finalizing and starting session..."

@@ -1,0 +1,12 @@
+[Unit]
+Description=MacShell Wireless Earbuds Live Sync Daemon
+After=bluetooth.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 %h/.local/bin/mac-earbuds-ctl daemon
+Restart=on-failure
+RestartSec=3s
+
+[Install]
+WantedBy=default.target
