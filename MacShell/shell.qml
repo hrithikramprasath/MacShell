@@ -431,4 +431,18 @@ ShellRoot {
         function close(): void { macBar.hubPopRequest("close"); }
         function eq(open: bool): void { macBar.earbudsEqExpanded = open; }
     }
+    // qs -c MacShell ipc call cc toggle | open | close
+    IpcHandler {
+        target: "cc"
+        function toggle(): void { macBar.ccRequest(true); }
+        function open(): void { macBar.ccRequest(true); }
+        function close(): void { macBar.ccRequest(false); }
+    }
+    // qs -c MacShell ipc call panel toggle <name> | open <name> | close
+    IpcHandler {
+        target: "panel"
+        function toggle(name: string): void { macBar.popRequest(name); }
+        function open(name: string): void { macBar.popRequest(name); }
+        function close(): void { macBar.popRequest(""); }
+    }
 }
