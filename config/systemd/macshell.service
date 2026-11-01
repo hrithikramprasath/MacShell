@@ -1,0 +1,17 @@
+[Unit]
+Description=MacShell Desktop Environment (Menu Bar, Dock, Control Center, OSD, Notifications)
+Documentation=https://github.com/hrithikramprasath/MacShell
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+Environment=MACSHELL_REPO=hrithikramprasath/MacShell
+Environment=MACSHELL_CHANNEL=main
+Environment=QS_ICON_THEME=Papirus-Dark
+ExecStart=/home/hrithikramprasath/.local/bin/macshell-start
+Restart=always
+RestartSec=1s
+
+[Install]
+WantedBy=graphical-session.target default.target
