@@ -1298,8 +1298,7 @@ Scope {
             frame: pg.frame
             liquid: root.liquidActive
             shaderUrl: root.glassShaderUrl
-            dark: root.panelDarkMode
-            veil: root.panelDarkMode ? 0.22 : 0.08
+            dark: root.effDark
             tint: root.glassOpacity
             strength: root.glassLiquid
             rim: root.glassRim * 0.25
@@ -1315,28 +1314,18 @@ Scope {
         }
     }
 
-    // Unified Dynamic Environmental Glass Backdrop for popovers matching the left-side Audio Hub
+    // Unified Liquid Glass Backdrop for popovers matching native MacShell styling
     component PopGlassBackdrop: Item {
         id: pgbd
         required property var gx
         property real cornerR: 26
-        property real thickness: 28
+        property real thickness: 22
         property real strengthMul: 1.0
-        property real shadowAmt: 0.55
-        property bool dark: root.panelDarkMode
+        property real shadowAmt: 0
+        property bool dark: pgbd.gx.dark
         anchors.fill: parent
 
-        // Soft ambient environmental shadow / glow
-        RectangularShadow {
-            anchors.fill: parent
-            radius: pgbd.cornerR
-            blur: 48
-            spread: 2
-            color: Qt.rgba(root.wallpaperAccent.r, root.wallpaperAccent.g, root.wallpaperAccent.b, pgbd.dark ? 0.18 : 0.10)
-            offset.y: 10
-        }
-
-        // Refractive Liquid Glass base matching the environment
+        // Refractive Liquid Glass base
         GGlass {
             anchors.fill: parent
             gx: pgbd.gx
@@ -1347,39 +1336,14 @@ Scope {
             flatInner: 1
         }
 
-        // Dynamic Environmental Wallpaper Tint that adapts seamlessly to the desktop
-        Rectangle {
-            anchors.fill: parent
-            radius: pgbd.cornerR
-            color: root.wallpaperAccent
-            opacity: pgbd.dark ? 0.10 : 0.06
-            Behavior on color { ColorAnimation { duration: 420; easing.type: Easing.OutCubic } }
-        }
-
-        // Ambient Depth Gradient
-        Rectangle {
-            anchors.fill: parent
-            radius: pgbd.cornerR
-            gradient: Gradient {
-                GradientStop {
-                    position: 0.0
-                    color: Qt.rgba(root.wallpaperAccent.r, root.wallpaperAccent.g, root.wallpaperAccent.b, pgbd.dark ? 0.16 : 0.08)
-                }
-                GradientStop {
-                    position: 1.0
-                    color: Qt.rgba(0, 0, 0, pgbd.dark ? 0.32 : 0.08)
-                }
-            }
-        }
-
-        // Signature macOS Tahoe / visionOS Border
+        // Specular dynamic MenuBorder
         MenuBorder {
             z: 2
             anchors.fill: parent
             cornerR: pgbd.cornerR
             dark: pgbd.dark
-            tint: root.menuBorderColor
-            amount: 0.65
+            tint: pgbd.gx.borderTint
+            amount: 1
         }
     }
 
@@ -1534,11 +1498,11 @@ Scope {
         onSeqChanged: if (seq > 0) { ap = 0; hbIn.restart(); }
         SequentialAnimation {
             id: hbIn
-            PauseAnimation { duration: Math.min(140, hb.row * 26 + hb.col * 14) }
-            NumberAnimation { target: hb; property: "ap"; from: 0; to: 1; duration: 340; easing.type: Easing.OutBack; easing.overshoot: 1.55 }
+            PauseAnimation { duration: Math.min(140, hb.row * 24 + hb.col * 12) }
+            NumberAnimation { target: hb; property: "ap"; from: 0; to: 1; duration: 420; easing.type: Easing.OutBack; easing.overshoot: 1.5 }
         }
         transform: Translate { y: (1 - hb.ap) * 16 }
-        opacity: Math.max(0, Math.min(1, hb.ap * 1.6))
+        opacity: Math.max(0, Math.min(1, hb.ap * 1.8))
         HoverHandler { id: hbHov }
         ContourGlow {
             z: 5
@@ -5373,7 +5337,14 @@ Scope {
                     function onPopRequest(name) {
                         if (!ui.toastScreen) return;
                         if (name === "" || ui.pop === name) ui.pop = "";
-                        else ui.openPop(name, 0);
+                        else {
+                            var x = 0;
+                            if (name === "bt" && btBtn.visible) x = btBtn.mapToItem(ui, 0, 0).x;
+                            else if (name === "vol" && volBtn.visible) x = volBtn.mapToItem(ui, 0, 0).x + volBtn.width / 2;
+                            else if (name === "wifi" && wifiBtn.visible) x = wifiBtn.mapToItem(ui, 0, 0).x;
+                            else if (name === "notif" && bellBtn.visible) x = bellBtn.mapToItem(ui, 0, 0).x;
+                            ui.openPop(name, x);
+                        }
                     }
                 }
                 readonly property bool toastsShown: toastScreen && notifToasts.count > 0
@@ -6493,9 +6464,9 @@ Scope {
                     property real openT: opening ? 1 : 0
                     Behavior on openT {
                         NumberAnimation {
-                            duration: hubPop.opening ? 380 : 140
+                            duration: hubPop.opening ? 500 : 150
                             easing.type: hubPop.opening ? Easing.OutBack : Easing.OutCubic
-                            easing.overshoot: 1.4
+                            easing.overshoot: 1.5
                         }
                     }
                     opacity: Math.max(0, Math.min(1, openT * 2.2))
@@ -6531,7 +6502,9 @@ Scope {
                     readonly property real capH: Math.min(ui.height - capTop, Math.max(200, hubPop.height) + 128)
                     readonly property rect capLocal: Qt.rect(capLeft, capTop, capW, capH)
                     readonly property real capS: root.barPopupScale
-                    readonly property rect capScreen: Qt.rect(capLeft * capS, capTop * capS, capW * capS, capH * capS)
+                    readonly property rect capScreen: Qt.rect(hubPop.x + (capLocal.x - hubPop.x) * capS,
+                                                              Math.max(0, hubPop.y + (capLocal.y - hubPop.y) * capS),
+                                                              capLocal.width * capS, capLocal.height * capS)
                     Timer {
                         id: hubGlassRefresh
                         interval: 40
@@ -6602,7 +6575,6 @@ Scope {
                         liquid: root.liquidActive
                         shaderUrl: root.glassShaderUrl
                         dark: root.ccDark
-                        veil: root.panelDarkMode ? 0.22 : 0.08
                         tint: root.glassOpacity
                         strength: root.glassLiquid
                         rim: root.glassRim * 0.25
@@ -6615,60 +6587,6 @@ Scope {
                         blur: root.glassBlur
                         debug: root.glassDebug
                         onFailed: root.glassState = "failed"
-                    }
-
-                    // Unified Dynamic Environmental Glass Backdrop
-                    Item {
-                        id: hubGlassBackdrop
-                        x: -12; y: -12
-                        width: hubPop.width + 24
-                        height: hubPop.height + 24
-                        z: -1
-
-                        // Refractive Liquid Glass base matching the environment
-                        GGlass {
-                            anchors.fill: parent
-                            gx: hubg
-                            cornerR: 32
-                            thickness: 28
-                            strengthMul: 1.0
-                            shadowAmt: 0.55
-                            flatInner: 1
-                        }
-
-                        // Dynamic Environmental Wallpaper Tint that adapts seamlessly to the desktop
-                        Rectangle {
-                            anchors.fill: parent
-                            radius: 32
-                            color: root.wallpaperAccent
-                            opacity: root.panelDarkMode ? 0.10 : 0.06
-                            Behavior on color { ColorAnimation { duration: 420; easing.type: Easing.OutCubic } }
-                        }
-
-                        // Ambient Depth Gradient
-                        Rectangle {
-                            anchors.fill: parent
-                            radius: 32
-                            gradient: Gradient {
-                                GradientStop {
-                                    position: 0.0
-                                    color: Qt.rgba(root.wallpaperAccent.r, root.wallpaperAccent.g, root.wallpaperAccent.b, root.panelDarkMode ? 0.16 : 0.08)
-                                }
-                                GradientStop {
-                                    position: 1.0
-                                    color: Qt.rgba(0, 0, 0, root.panelDarkMode ? 0.32 : 0.08)
-                                }
-                            }
-                        }
-
-                        // Signature macOS Tahoe / visionOS Border
-                        MenuBorder {
-                            anchors.fill: parent
-                            cornerR: 32
-                            dark: root.panelDarkMode
-                            tint: root.menuBorderColor
-                            amount: 0.65
-                        }
                     }
 
                     // Swallow clicks inside the Bento grid gaps so clicking between two tiles doesn't dismiss the dashboard
@@ -8667,8 +8585,8 @@ Scope {
                                     bx: toastArea.x + toast.x + tslab.x; by: toastArea.y + toast.y
                                     cornerR: Math.min(24 + (1 - toast.tc) * 40, height / 2)
                                     tint: root.glassOpacity
-                                    thickness: 26
-                                    strength: 0.8 * root.glassLiquid
+                                    thickness: 22
+                                    strength: 0.7 * root.glassLiquid
                                     rim: root.glassRim
                                     grain: root.glassGrain
                                     blur: root.notifBlur
@@ -8676,30 +8594,7 @@ Scope {
                                     onShaderError: root.glassState = "failed"
                                     rimTint: 1
                                     ringW: 0.9
-                                    shadowAmt: 0.50
-                                }
-                                RectangularShadow {
-                                    anchors.fill: tslab
-                                    radius: tslab.cornerR
-                                    blur: 36
-                                    spread: 1
-                                    color: Qt.rgba(root.wallpaperAccent.r, root.wallpaperAccent.g, root.wallpaperAccent.b, root.panelDarkMode ? 0.16 : 0.08)
-                                    offset.y: 6
-                                }
-                                Rectangle {
-                                    anchors.fill: tslab
-                                    radius: tslab.cornerR
-                                    color: root.wallpaperAccent
-                                    opacity: root.panelDarkMode ? 0.09 : 0.05
-                                    Behavior on color { ColorAnimation { duration: 420; easing.type: Easing.OutCubic } }
-                                }
-                                Rectangle {
-                                    anchors.fill: tslab
-                                    radius: tslab.cornerR
-                                    gradient: Gradient {
-                                        GradientStop { position: 0.0; color: Qt.rgba(root.wallpaperAccent.r, root.wallpaperAccent.g, root.wallpaperAccent.b, root.panelDarkMode ? 0.14 : 0.07) }
-                                        GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, root.panelDarkMode ? 0.30 : 0.07) }
-                                    }
+                                    shadowAmt: 0.35
                                 }
                                 MenuBorder {
                                     z: 2
@@ -8707,7 +8602,7 @@ Scope {
                                     cornerR: Math.min(24 + (1 - toast.tc) * 40, height / 2)
                                     dark: root.effDark
                                     tint: root.menuBorderColor
-                                    amount: 0.65
+                                    amount: 0.5
                                 }
                                 MouseArea {
                                     anchors.fill: parent
@@ -9022,44 +8917,28 @@ Scope {
                         capScale: root.barPopupScale
                         magnifyMul: 0
                         refreshOnResize: true
-                        shadowAmt: 0.45
+                        shadowAmt: 0
                         flatInner: 1
                         rimTint: 1
                         ringW: 1.4
                         cornerR: 14
                         tint: root.panelDarkMode ? Math.max(root.glassOpacity, 0.55) : root.glassOpacity
-                        thickness: 26
-                        strength: 0.7 * root.glassLiquid
+                        thickness: 22
+                        strength: 0.55 * root.glassLiquid
                         rim: root.glassRim
                         grain: root.glassGrain
                         blur: 41
                         debug: root.glassDebug
                         onShaderError: root.glassState = "failed"
                     }
-                    // Ambient Glow / Drop Shadow
-                    RectangularShadow {
-                        anchors.fill: parent
-                        radius: 14
-                        blur: 36
-                        spread: 1
-                        color: Qt.rgba(root.wallpaperAccent.r, root.wallpaperAccent.g, root.wallpaperAccent.b, root.panelDarkMode ? 0.16 : 0.08)
-                        offset.y: 8
-                    }
-                    // Dynamic Environmental Wallpaper Tint
+                    // dark mode: Dock-label style dark tint over the glass
                     Rectangle {
-                        anchors.fill: parent
-                        radius: 14
-                        color: root.wallpaperAccent
-                        opacity: root.panelDarkMode ? 0.09 : 0.05
-                        Behavior on color { ColorAnimation { duration: 420; easing.type: Easing.OutCubic } }
-                    }
-                    // Dynamic Ambient Depth Gradient
-                    Rectangle {
+                        visible: root.panelDarkMode
                         anchors.fill: parent
                         radius: 14
                         gradient: Gradient {
-                            GradientStop { position: 0.0; color: Qt.rgba(root.wallpaperAccent.r, root.wallpaperAccent.g, root.wallpaperAccent.b, root.panelDarkMode ? 0.14 : 0.07) }
-                            GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, root.panelDarkMode ? 0.32 : 0.07) }
+                            GradientStop { position: 0.0; color: Qt.rgba(56 / 255, 56 / 255, 62 / 255, 0.34) }
+                            GradientStop { position: 1.0; color: Qt.rgba(30 / 255, 30 / 255, 34 / 255, 0.38) }
                         }
                     }
                     MenuBorder {
@@ -9199,45 +9078,19 @@ Scope {
                         capScale: root.barPopupScale
                         magnifyMul: 0
                         refreshOnResize: true
-                        shadowAmt: 0.45
+                        shadowAmt: 0
                         flatInner: 1
                         rimTint: 1
                         ringW: 0
                         cornerR: 14
-                        tint: root.panelDarkMode ? Math.max(root.glassOpacity, 0.55) : root.glassOpacity
-                        thickness: 26
-                        strength: 0.7 * root.glassLiquid
+                        tint: root.glassOpacity
+                        thickness: 22
+                        strength: 0.55 * root.glassLiquid
                         rim: root.glassRim
                         grain: root.glassGrain
                         blur: 42
                         debug: root.glassDebug
                         onShaderError: root.glassState = "failed"
-                    }
-                    // Ambient Glow / Drop Shadow
-                    RectangularShadow {
-                        anchors.fill: parent
-                        radius: 14
-                        blur: 36
-                        spread: 1
-                        color: Qt.rgba(root.wallpaperAccent.r, root.wallpaperAccent.g, root.wallpaperAccent.b, root.panelDarkMode ? 0.16 : 0.08)
-                        offset.y: 8
-                    }
-                    // Dynamic Environmental Wallpaper Tint
-                    Rectangle {
-                        anchors.fill: parent
-                        radius: 14
-                        color: root.wallpaperAccent
-                        opacity: root.panelDarkMode ? 0.09 : 0.05
-                        Behavior on color { ColorAnimation { duration: 420; easing.type: Easing.OutCubic } }
-                    }
-                    // Dynamic Ambient Depth Gradient
-                    Rectangle {
-                        anchors.fill: parent
-                        radius: 14
-                        gradient: Gradient {
-                            GradientStop { position: 0.0; color: Qt.rgba(root.wallpaperAccent.r, root.wallpaperAccent.g, root.wallpaperAccent.b, root.panelDarkMode ? 0.14 : 0.07) }
-                            GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, root.panelDarkMode ? 0.32 : 0.07) }
-                        }
                     }
                     // same border as the top-bar menus (File, Edit, ...)
                     MenuBorder {
@@ -10271,7 +10124,6 @@ Scope {
                         liquid: root.liquidActive
                         shaderUrl: root.glassShaderUrl
                         dark: root.ccDark
-                        veil: root.panelDarkMode ? 0.22 : 0.08
                         // macOS style: the panel is the glass, so each control only keeps a faint shape on top of it
                         tint: root.ccStyle === "macos" ? root.glassOpacity * 0.30 : root.glassOpacity
                         strength: root.ccStyle === "macos" ? root.glassLiquid * 0.30 : root.glassLiquid
@@ -10662,69 +10514,6 @@ Scope {
                                 on: root.muted
                                 onClicked: root.toggleMute()
                             }
-                        }
-                    }
-
-                    // Dynamic Environmental Glass Backdrop matching left-side Audio Hub
-                    Item {
-                        id: ccGlassBackdrop
-                        x: -12; y: -12
-                        width: cc.width + 24
-                        height: cc.height + 24
-                        z: -1
-
-                        // Soft ambient environmental shadow / glow
-                        RectangularShadow {
-                            anchors.fill: parent
-                            radius: 30
-                            blur: 48
-                            spread: 2
-                            color: Qt.rgba(root.wallpaperAccent.r, root.wallpaperAccent.g, root.wallpaperAccent.b, root.panelDarkMode ? 0.18 : 0.10)
-                            offset.y: 12
-                        }
-
-                        // Refractive Liquid Glass base matching the environment
-                        GGlass {
-                            anchors.fill: parent
-                            gx: ccg
-                            cornerR: 30
-                            thickness: 28
-                            strengthMul: 1.0
-                            shadowAmt: 0.55
-                            flatInner: 1
-                        }
-
-                        // Dynamic Environmental Wallpaper Tint that adapts seamlessly to the desktop
-                        Rectangle {
-                            anchors.fill: parent
-                            radius: 30
-                            color: root.wallpaperAccent
-                            opacity: root.panelDarkMode ? 0.10 : 0.06
-                            Behavior on color { ColorAnimation { duration: 420; easing.type: Easing.OutCubic } }
-                        }
-
-                        // Ambient Depth Gradient
-                        Rectangle {
-                            anchors.fill: parent
-                            radius: 30
-                            gradient: Gradient {
-                                GradientStop {
-                                    position: 0.0
-                                    color: Qt.rgba(root.wallpaperAccent.r, root.wallpaperAccent.g, root.wallpaperAccent.b, root.panelDarkMode ? 0.16 : 0.08)
-                                }
-                                GradientStop {
-                                    position: 1.0
-                                    color: Qt.rgba(0, 0, 0, root.panelDarkMode ? 0.32 : 0.08)
-                                }
-                            }
-                        }
-
-                        MenuBorder {
-                            anchors.fill: parent
-                            cornerR: 30
-                            dark: root.panelDarkMode
-                            tint: root.menuBorderColor
-                            amount: 0.65
                         }
                     }
 
@@ -11657,15 +11446,6 @@ Scope {
                     transformOrigin: Item.TopRight
                     Behavior on opacity { NumberAnimation { duration: 160 } }
                     Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
-                    // Soft ambient environmental shadow / glow
-                    RectangularShadow {
-                        anchors.fill: parent
-                        radius: height / 2
-                        blur: 40
-                        spread: 2
-                        color: Qt.rgba(root.wallpaperAccent.r, root.wallpaperAccent.g, root.wallpaperAccent.b, root.panelDarkMode ? 0.18 : 0.10)
-                        offset.y: 8
-                    }
                     LGlass {
                         anchors.fill: parent
                         backdrop: osdBackdrop.item
@@ -11675,8 +11455,8 @@ Scope {
                         bx: levelOsd.x; by: levelOsd.y
                         cornerR: height / 2
                         tint: root.glassOpacity
-                        thickness: 26
-                        strength: 0.85 * root.glassLiquid
+                        thickness: 22
+                        strength: 0.7 * root.glassLiquid
                         rim: root.glassRim
                         grain: root.glassGrain
                         blur: root.glassBlur
@@ -11684,23 +11464,8 @@ Scope {
                         onShaderError: root.glassState = "failed"
                         rimTint: 1
                         ringW: 1.4
-                        shadowAmt: 0.50
-                        flatInner: 1
-                    }
-                    Rectangle {
-                        anchors.fill: parent
-                        radius: height / 2
-                        color: root.wallpaperAccent
-                        opacity: root.panelDarkMode ? 0.10 : 0.05
-                        Behavior on color { ColorAnimation { duration: 420; easing.type: Easing.OutCubic } }
-                    }
-                    Rectangle {
-                        anchors.fill: parent
-                        radius: height / 2
-                        gradient: Gradient {
-                            GradientStop { position: 0.0; color: Qt.rgba(root.wallpaperAccent.r, root.wallpaperAccent.g, root.wallpaperAccent.b, root.panelDarkMode ? 0.14 : 0.07) }
-                            GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, root.panelDarkMode ? 0.30 : 0.07) }
-                        }
+                        shadowAmt: 0        // no outer drop shadow
+                        flatInner: 1        // no darker inner edge shading
                     }
                     MenuBorder {
                         z: 2
@@ -11708,7 +11473,6 @@ Scope {
                         cornerR: height / 2
                         dark: root.effDark
                         tint: root.menuBorderColor
-                        amount: 0.65
                         outline: false      // no dark hairline around the capsule
                     }
                     Glyph {
