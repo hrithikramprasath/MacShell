@@ -6066,25 +6066,24 @@ Scope {
                                 readonly property bool cur: wsRow.activeId === modelData
                                 readonly property bool busy: root.wsOccupied(modelData)
                                 readonly property bool inStash: wsi.cur && root.stashActive
-                                width: inStash ? 54 : 22; height: 28
+                                width: inStash ? 52 : 22; height: 28
                                 Behavior on width { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
                                 Rectangle {
                                     anchors.centerIn: parent
                                     width: parent.width - 2
                                     height: parent.height - 6
                                     radius: 6
-                                    color: wsi.inStash ? Qt.rgba(bpal.accent.r, bpal.accent.g, bpal.accent.b, 0.24) : (wsi.cur ? bpal.hover : "transparent")
-                                    opacity: wsi.cur || wsMa.containsMouse ? 1 : 0
+                                    color: (wsi.cur || wsi.inStash) ? bpal.hover : "transparent"
+                                    opacity: (wsi.cur || wsi.inStash) || wsMa.containsMouse ? 1 : 0
                                     Behavior on opacity { NumberAnimation { duration: 140 } }
-                                    Behavior on color { ColorAnimation { duration: 140 } }
                                 }
                                 Text {
                                     anchors.centerIn: parent
                                     text: wsi.inStash ? "Stash" : ("" + wsi.modelData)
-                                    color: wsi.inStash ? bpal.accent : (wsi.cur ? bpal.fg : (wsi.busy ? bpal.fg2 : bpal.fg3))
-                                    font.family: root.fontForWeight((wsi.cur || wsi.inStash ? Font.DemiBold : Font.Normal), bpal.fam)
-                                    font.pixelSize: wsi.inStash ? 12 : 13
-                                    font.weight: wsi.cur || wsi.inStash ? Font.DemiBold : Font.Normal
+                                    color: (wsi.cur || wsi.inStash) ? bpal.fg : (wsi.busy ? bpal.fg2 : bpal.fg3)
+                                    font.family: root.fontForWeight(((wsi.cur || wsi.inStash) ? Font.DemiBold : Font.Normal), bpal.fam)
+                                    font.pixelSize: 13
+                                    font.weight: (wsi.cur || wsi.inStash) ? Font.DemiBold : Font.Normal
                                     Behavior on color { ColorAnimation { duration: 140 } }
                                 }
                                 MouseArea {
