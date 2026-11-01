@@ -35,8 +35,11 @@ Item {
         x: -g.sp; y: -g.sp
         width: g.width + 2 * g.sp; height: g.height + 2 * g.sp
         property string sig: [g.width, g.height, g.radius].join("|")
-        onSigChanged: requestPaint()
-        onWidthChanged: requestPaint()
+        onSigChanged: if (visible) requestPaint()
+        onWidthChanged: if (visible) requestPaint()
+        renderTarget: Canvas.FramebufferObject
+        antialiasing: true
+        Component.onCompleted: requestPaint()
         onPaint: {
             var c = getContext("2d");
             c.reset();

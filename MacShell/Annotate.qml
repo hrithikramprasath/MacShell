@@ -1,19 +1,10 @@
-//0.4.9
-// Annotate: draw on your screen, or on a whiteboard.
-//
-//   qs -c MacShell ipc call annotate toggle        Super+D   pen on / off (asks: annotate the screen, or a whiteboard)
-//   qs -c MacShell ipc call annotate pen | board   skip the question
-//   qs -c MacShell ipc call annotate clearPress    Super+C   (press)   tap = clear this window, hold = clear everything
-//   qs -c MacShell ipc call annotate clearRelease  Super+C   (release)
-//
-// Ink is anchored to the window it was drawn on (stored relative to the window, so it follows it when it moves, is resized, or when you
-// switch workspace and come back). Ink drawn on the bare desktop belongs to that workspace. It lives on a layer-shell overlay, so
-// screenshots (grim, the shell's own capture) include it. Keybinds: see config/hypr/hyprland.lua.
+// Whiteboard: a blank canvas for sketching ideas, diagrams, and notes.
+//   qs -c MacShell ipc call annotate toggle   Super+D   open / close the whiteboard
+//   qs -c MacShell ipc call annotate clear    Super+C   clear the whiteboard
 import QtQuick
 import QtQuick.Window
 import Quickshell
 import Quickshell.Io
-import Quickshell.Wayland
 import Quickshell.Hyprland
 import "AnnoDraw.js" as D
 
@@ -42,48 +33,17 @@ Scope {
     readonly property real strokeW: tool === "highlighter" ? penWidths[widthIdx] * 3.6 : penWidths[widthIdx]
     readonly property real eraseR: eraseRadii[widthIdx]
 
-    property bool penOn: false           // annotating the screen
-    property string tbEdge: "bottom"     // where the pen bar rests: bottom | top | left | right | free
-    property real tbFreeX: 0
-    property real tbFreeY: 0
-    property real tbAppear: penOn ? 1 : 0
-    Behavior on tbAppear { NumberAnimation { duration: root.penOn ? 520 : 240; easing.type: root.penOn ? Easing.OutBack : Easing.InCubic; easing.overshoot: 1.05 } }
-    property bool pickerOpen: false
-    property int pickSel: 0
+    // ── whiteboard window state ──
     property bool boardOpen: false
-    property string uiScreenName: ""
-    readonly property var uiScreen: screenByName(uiScreenName)
-    readonly property bool wantsGeo: penOn || keyModel.count > 0
-
-    function screenByName(n) {
-        var s = Quickshell.screens;
-        for (var i = 0; i < s.length; i++) if (s[i].name === n) return s[i];
-        return s.length > 0 ? s[0] : null;
-    }
-    function focusedMonitorName() {
-        try { if (Hyprland.focusedMonitor) return Hyprland.focusedMonitor.name; } catch (e) { }
-        return "";
-    }
-
-    Binding { target: root.hub; property: "annoWantsGeo"; value: root.wantsGeo; when: root.hub !== null }
-    property int geoRev: 0
-    Connections {
-        target: root.hub
-        function onGlassClientsChanged() { root.geoRev++; }
-        function onMonDataChanged() { root.geoRev++; }
-    }
+    function openBoard() { boardOpen = true; boardWin.openIt(); }
+    function closeBoard() { boardOpen = false; boardWin.closeIt(); }
+    function toggle() { if (boardOpen) closeBoard(); else openBoard(); }
 
     // ── the ink ──
-    property var store: ({})             // anchor key -> [strokes]
-    ListModel { id: keyModel }
+    property var store: ({ "board": [] })
     signal inkChanged(string key)
     signal inkPainted(string key)
-    signal clearRequested(string key, int delay)
 
-    function ensureKey(k) {
-        for (var i = 0; i < keyModel.count; i++) if (keyModel.get(i).k === k) return;
-        keyModel.append({ k: k });
-    }
     function strokesOf(k) { return store[k] ? store[k] : []; }
     function inkCount(k) { return store[k] ? store[k].length : 0; }
 
@@ -114,670 +74,90 @@ Scope {
     }
 
     function commit(key, stroke) {
-        ensureKey(key);
         if (!store[key]) store[key] = [];
         store[key].push(stroke);
         inkChanged(key);
         Qt.callLater(function() { root.inkChanged(key); });
         pushOp({
-            undo: function () { var l = store[key] || [], i = l.indexOf(stroke); if (i >= 0) { l.splice(i, 1); inkChanged(key); } },
-            redo: function () { ensureKey(key); if (!store[key]) store[key] = []; store[key].push(stroke); inkChanged(key); }
+            undo: function () {
+                var l = store[key] || [], i = l.indexOf(stroke);
+                if (i >= 0) { l.splice(i, 1); inkChanged(key); }
+            },
+            redo: function () {
+                if (!store[key]) store[key] = [];
+                store[key].push(stroke);
+                inkChanged(key);
+            }
         });
     }
+
     function pushEraseOp(removed) {
         var rem = removed.slice();
         pushOp({
-            undo: function () {                       // put the strokes back in reverse order, each at the place it was taken from
-                for (var i = rem.length - 1; i >= 0; i--) { ensureKey(rem[i].key); if (!store[rem[i].key]) store[rem[i].key] = []; store[rem[i].key].splice(rem[i].i, 0, rem[i].s); }
-                var seen = {};
-                for (var j = 0; j < rem.length; j++) if (!seen[rem[j].key]) { seen[rem[j].key] = true; inkChanged(rem[j].key); }
+            undo: function () {
+                for (var i = rem.length - 1; i >= 0; i--) {
+                    var k = rem[i].key;
+                    if (!store[k]) store[k] = [];
+                    store[k].splice(rem[i].i, 0, rem[i].s);
+                }
+                inkChanged("board");
             },
             redo: function () {
-                var seen = {};
-                for (var i = 0; i < rem.length; i++) { var l = store[rem[i].key]; if (l) l.splice(rem[i].i, 1); seen[rem[i].key] = true; }
-                for (var k in seen) inkChanged(k);
+                for (var i = 0; i < rem.length; i++) {
+                    var l = store[rem[i].key];
+                    if (l) l.splice(rem[i].i, 1);
+                }
+                inkChanged("board");
             }
         });
     }
-    // erase every stroke the eraser touches (in the anchors under the point); returns what was taken, for undo
+
     function eraseAt(gx, gy, r, mon, fixed) {
-        var anchors = [], i, a;
-        if (fixed) anchors.push(fixed);
-        else {
-            for (i = 0; i < keyModel.count; i++) {
-                var k = keyModel.get(i).k, rc = rectFor(k, mon);
-                if (rc && gx >= rc.x - r && gx <= rc.x + rc.w + r && gy >= rc.y - r && gy <= rc.y + rc.h + r)
-                    anchors.push({ key: k, x: rc.x, y: rc.y, w: rc.w, h: rc.h });
+        var key = fixed ? fixed.key : "board";
+        var list = store[key];
+        if (!list || list.length === 0) return [];
+        var w = fixed ? fixed.w : 1080, h = fixed ? fixed.h : 700;
+        var removed = [], hit = false;
+        for (var j = list.length - 1; j >= 0; j--) {
+            if (D.nearStroke(list[j], gx, gy, r, w, h)) {
+                removed.push({ key: key, i: j, s: list[j] });
+                list.splice(j, 1);
+                hit = true;
             }
         }
-        var removed = [];
-        for (i = 0; i < anchors.length; i++) {
-            a = anchors[i];
-            var list = store[a.key], hit = false;
-            if (!list) continue;
-            for (var j = list.length - 1; j >= 0; j--) {
-                if (D.nearStroke(list[j], gx - a.x, gy - a.y, r, a.w, a.h)) { removed.push({ key: a.key, i: j, s: list[j] }); list.splice(j, 1); hit = true; }
-            }
-            if (hit) inkChanged(a.key);
-        }
+        if (hit) inkChanged(key);
         return removed;
     }
 
-    // ── which window is where ──
-    function norm(addr) { return String(addr).replace(/^0x/, ""); }
-    function monByName(n) {
-        var m = hub ? hub.monData : [];
-        for (var i = 0; i < m.length; i++) if (m[i].name === n) return m[i];
-        return null;
-    }
-    function monShowsWs(mon, id) {
-        if (!mon) return false;
-        if (mon.activeWorkspace && mon.activeWorkspace.id == id) return true;
-        return !!(mon.specialWorkspace && mon.specialWorkspace.id !== 0 && mon.specialWorkspace.id == id);
-    }
-    function clientVisible(c, mon) {
-        if (!mon || !c || !c.mapped || c.hidden || c.monitor != mon.id) return false;
-        if (c.title === "MacShell Whiteboard") return false;
-        if (c.pinned) return true;
-        return !!c.workspace && monShowsWs(mon, c.workspace.id);
-    }
-    function wsOf(mon) { return mon && mon.activeWorkspace ? mon.activeWorkspace.id : 1; }
-
-    // the window (or, on bare desktop, the workspace) a stroke starting at (gx, gy) belongs to
-    function resolveAnchor(gx, gy, monName) {
-        var _ = root.geoRev;
-        var mon = monByName(monName), cl = hub ? hub.glassClients : [], best = null, bs = -1e9;
-        for (var i = 0; i < cl.length; i++) {
-            var c = cl[i];
-            if (!clientVisible(c, mon) || !c.at || !c.size) continue;
-            if (gx < c.at[0] || gx > c.at[0] + c.size[0] || gy < c.at[1] || gy > c.at[1] + c.size[1]) continue;
-            var sc = (c.floating ? 1000 : 0) - (c.focusHistoryID !== undefined ? c.focusHistoryID : 0);
-            if (sc > bs) { bs = sc; best = c; }
-        }
-        if (best) return { key: norm(best.address), x: best.at[0], y: best.at[1], w: Math.max(1, best.size[0]), h: Math.max(1, best.size[1]) };
-        var s = screenByName(monName);
-        return { key: "ws:" + wsOf(mon), x: s ? s.x : 0, y: s ? s.y : 0, w: s ? s.width : 1, h: s ? s.height : 1 };
-    }
-    // where an anchor is right now on this monitor (compositor coordinates), or null when it is not visible there
-    function rectFor(key, monName) {
-        var _ = root.geoRev;
-        var mon = monByName(monName);
-        if (!mon) return null;
-        var i;
-        if (key.indexOf("ws:") === 0) {
-            if (!monShowsWs(mon, parseInt(key.substring(3)))) return null;
-            var s = screenByName(monName);
-            return s ? { x: s.x, y: s.y, w: s.width, h: s.height } : null;
-        }
-        var cl = hub ? hub.glassClients : [];
-        for (i = 0; i < cl.length; i++) {
-            if (norm(cl[i].address) !== key) continue;
-            if (!clientVisible(cl[i], mon) || !cl[i].at || !cl[i].size) return null;
-            return { x: cl[i].at[0], y: cl[i].at[1], w: Math.max(1, cl[i].size[0]), h: Math.max(1, cl[i].size[1]) };
-        }
-        return null;
-    }
-    function screenHasInk(monName) {
-        for (var i = 0; i < keyModel.count; i++) {
-            var k = keyModel.get(i).k;
-            if (inkCount(k) > 0 && rectFor(k, monName) !== null) return true;
-        }
-        return false;
-    }
-    function focusedKey() {
-        var cl = hub ? hub.glassClients : [];
-        for (var i = 0; i < cl.length; i++) if (cl[i].focusHistoryID === 0 && cl[i].mapped && !cl[i].hidden) return norm(cl[i].address);
-        return "";
-    }
-
-    // forget the ink of windows that are gone
-    property var missCount: ({})
-    Timer {
-        interval: 4000; repeat: true; running: keyModel.count > 0
-        onTriggered: {
-            var cl = root.hub ? root.hub.glassClients : [];
-            if (cl.length === 0) return;
-            var live = {}, i;
-            for (i = 0; i < cl.length; i++) live[root.norm(cl[i].address)] = true;
-            for (i = keyModel.count - 1; i >= 0; i--) {
-                var k = keyModel.get(i).k;
-                if (k.indexOf("ws:") === 0 || k === "board") continue;
-                if (live[k]) { delete root.missCount[k]; continue; }
-                root.missCount[k] = (root.missCount[k] || 0) + 1;
-                if (root.missCount[k] >= 2) { keyModel.remove(i); delete root.store[k]; delete root.missCount[k]; }
-            }
-        }
-    }
-
-    // ── clearing ──
-    Component { id: delayedCall; Timer { property var fn; running: true; onTriggered: { fn(); destroy(); } } }
-    function requestClear(keys, stagger) {
-        var items = [], i;
-        for (i = 0; i < keys.length; i++) {
-            var k = keys[i], l = store[k];
-            if (!l || l.length === 0) continue;
-            items.push({ key: k, strokes: l.slice() });
-        }
-        if (items.length === 0) return 0;
-        for (i = 0; i < items.length; i++) {
-            (function (it, delay) {
-                clearRequested(it.key, delay);
-                delayedCall.createObject(root, { interval: delay + 300, fn: function () { root.store[it.key] = []; root.inkChanged(it.key); } });
-            })(items[i], i * stagger);
-        }
+    function clearBoard() {
+        var l = store["board"];
+        if (!l || l.length === 0) return;
+        var strokes = l.slice();
+        store["board"] = [];
+        inkChanged("board");
         pushOp({
-            undo: function () { for (var a = 0; a < items.length; a++) { root.ensureKey(items[a].key); root.store[items[a].key] = items[a].strokes.slice(); root.inkChanged(items[a].key); } },
-            redo: function () { for (var b = 0; b < items.length; b++) { root.store[items[b].key] = []; root.inkChanged(items[b].key); } }
+            undo: function () {
+                store["board"] = strokes.slice();
+                inkChanged("board");
+            },
+            redo: function () {
+                store["board"] = [];
+                inkChanged("board");
+            }
         });
-        return items.length;
     }
-    function clearCurrent() {
-        var key = (boardOpen && boardWin.active) ? "board" : focusedKey();
-        var target = "";
-        if (key !== "" && inkCount(key) > 0) target = key;
-        else {
-            var fm = monByName(focusedMonitorName() !== "" ? focusedMonitorName() : (Quickshell.screens.length > 0 ? Quickshell.screens[0].name : ""));
-            var ws = "ws:" + wsOf(fm);
-            if (inkCount(ws) > 0) target = ws;
-        }
-        if (target === "") { toast(qsTr("Nothing to clear")); return; }
-        requestClear([target], 0);
-        toast(qsTr("Cleared"));
-    }
-    function clearAll() {
-        var keys = [];
-        for (var i = 0; i < keyModel.count; i++) keys.push(keyModel.get(i).k);
-        if (requestClear(keys, 45) > 0) toast(qsTr("Cleared all"));
-        else toast(qsTr("Nothing to clear"));
-    }
-
-    // Super+C: a tap clears the window, holding it (for 0.6 s, with a ring that fills up) clears everything
-    property bool clearDown: false
-    property real holdP: 0
-    function clearPress() {
-        if (clearDown) return;
-        clearDown = true; holdP = 0;
-        holdAnim.restart();
-    }
-    function clearRelease() {
-        if (!clearDown) return;
-        clearDown = false;
-        holdAnim.stop();
-        holdP = 0;
-        clearCurrent();
-    }
-    function holdFire() { clearDown = false; holdP = 0; clearAll(); }
-    SequentialAnimation {
-        id: holdAnim
-        PauseAnimation { duration: 190 }
-        NumberAnimation { target: root; property: "holdP"; from: 0; to: 1; duration: 410; easing.type: Easing.InOutSine }
-        ScriptAction { script: root.holdFire() }
-    }
-
-    // ── the little message under the screen: toast / hold ring ──
-    property string hudMsg: ""
-    property bool toastOn: false
-    function toast(msg) {
-        if (!uiScreenName || !penOn) uiScreenName = focusedMonitorName();
-        hudMsg = msg; toastOn = true; toastT.restart();
-    }
-    Timer { id: toastT; interval: 1300; onTriggered: root.toastOn = false }
-    readonly property bool hudShown: holdP > 0.01 || toastOn
-    property real hudA: hudShown ? 1 : 0
-    Behavior on hudA { NumberAnimation { duration: hudShown ? 300 : 260; easing.type: hudShown ? Easing.OutBack : Easing.InCubic; easing.overshoot: 1.3 } }
-
-    // ── toggling ──
-    function setPen(on) {
-        if (on) { uiScreenName = focusedMonitorName(); }
-        penOn = on;
-    }
-    function openPicker() {
-        uiScreenName = focusedMonitorName();
-        pickSel = 0; pickerOpen = true;
-    }
-    function closePicker() { pickerOpen = false; }
-    function choose(i) {
-        pickerOpen = false;
-        if (i === 0) setPen(true); else openBoard();
-    }
-    function toggle() {
-        if (boardOpen && boardWin.active) { closeBoard(); return; }
-        if (penOn) { setPen(false); return; }
-        if (pickerOpen) { closePicker(); return; }
-        if (boardOpen) { closeBoard(); return; }
-        openPicker();
-    }
-    function openBoard() { if (penOn) setPen(false); boardOpen = true; boardWin.openIt(); }
-    function closeBoard() { boardOpen = false; boardWin.closeIt(); }
 
     IpcHandler {
         target: "annotate"
         function toggle(): void { root.toggle(); }
-        function pen(): void { if (root.penOn) root.setPen(false); else { root.closePicker(); if (root.boardOpen) root.closeBoard(); root.setPen(true); } }
-        function board(): void { if (root.boardOpen) root.closeBoard(); else { root.closePicker(); root.openBoard(); } }
-        function edge(name: string): void { root.tbEdge = name; }
-        function clearPress(): void { root.clearPress(); }
-        function clearRelease(): void { root.clearRelease(); }
-        function clear(): void { root.clearCurrent(); }
-        function clearAll(): void { root.clearAll(); }
+        function board(): void { root.openBoard(); }
+        function pen(): void { root.toggle(); }
+        function clear(): void { root.clearBoard(); }
+        function clearPress(): void { root.clearBoard(); }
+        function clearRelease(): void { }
+        function clearAll(): void { root.clearBoard(); }
         function undo(): void { root.undo(); }
         function redo(): void { root.redo(); }
-    }
-
-    // ═════════════ the ink: one click-through overlay per screen ═════════════
-    Region { id: noInput }
-    Variants {
-        model: Quickshell.screens
-        PanelWindow {
-            id: ink
-            required property var modelData
-            screen: modelData
-            anchors { left: true; right: true; top: true; bottom: true }
-            color: "transparent"
-            exclusionMode: ExclusionMode.Ignore
-            visible: root.penOn || root.tbAppear > 0.001 || root.screenHasInk(modelData.name)
-            mask: root.penOn ? null : noInput
-            WlrLayershell.namespace: "macannotate"
-            WlrLayershell.layer: WlrLayer.Overlay
-            WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
-
-            Repeater {
-                model: keyModel
-                delegate: Item {
-                    id: dl
-                    required property string k
-                    property int rev: 0          // bumped whenever this anchor's ink changes, so the bindings below re-run
-                    readonly property var r: { var _ = dl.rev + root.geoRev; return root.rectFor(k, ink.modelData.name); }
-                    visible: dl.rev >= 0 && r !== null && root.inkCount(k) > 0
-                    x: r ? Math.round(r.x - ink.modelData.x) : 0
-                    y: r ? Math.round(r.y - ink.modelData.y) : 0
-                    width: r ? Math.max(2, Math.round(r.w)) : 2
-                    height: r ? Math.max(2, Math.round(r.h)) : 2
-                    clip: true
-                    property real fade: 1
-                    opacity: fade
-                    AnnoCanvas { anchors.fill: parent; anno: root; key: dl.k; scale: 0.985 + 0.015 * dl.fade; transformOrigin: Item.Center }
-                    Component.onCompleted: {
-                        dl.rev++;
-                        root.inkChanged(dl.k);
-                    }
-                    SequentialAnimation {
-                        id: fadeOut
-                        PauseAnimation { id: fadePause; duration: 0 }
-                        NumberAnimation { target: dl; property: "fade"; to: 0; duration: 280; easing.type: Easing.OutCubic }
-                        PropertyAction { target: dl; property: "fade"; value: 1 }
-                    }
-                    Connections {
-                        target: root
-                        function onInkChanged(key) { if (key === dl.k) dl.rev++; }
-                        function onClearRequested(key, delay) { if (key === dl.k) { fadePause.duration = delay; fadeOut.restart(); } }
-                    }
-                }
-            }
-            AnnoPad {
-                anchors.fill: parent
-                anno: root
-                originX: ink.modelData.x; originY: ink.modelData.y
-                monName: ink.modelData.name
-                active: root.penOn
-            }
-
-            // ── the pen bar: lives inside the ink window (a separate overlay window sat under it and ate every click) ──
-            // Drag it by its grip or any gap; let go near a screen edge and it glides there (turning vertical on the sides), or
-            // throw it and it flies to the edge you threw it at.
-            Item {
-                id: tbHost
-                anchors.fill: parent
-                z: 10
-                visible: root.uiScreen === ink.modelData && root.tbAppear > 0.001
-                property bool dragging: false
-                property bool sideVertical: false
-                property real dragX: 0
-                property real dragY: 0
-                readonly property real m: 18
-                readonly property real bottomGap: 104
-                readonly property real topGap: 56
-                readonly property bool vert: dragging ? sideVertical : (root.tbEdge === "left" || root.tbEdge === "right")
-
-                readonly property real hW: tbar.hTargetW
-                readonly property real hH: tbar.hTargetH
-                readonly property real vW: tbar.vTargetW
-                readonly property real vH: tbar.vTargetH
-
-                function targetX() {
-                    if (root.tbEdge === "left") return m;
-                    if (root.tbEdge === "right") return width - vW - m;
-                    if (root.tbEdge === "free") {
-                        var tw = vert ? vW : hW;
-                        return Math.max(m, Math.min(width - tw - m, root.tbFreeX));
-                    }
-                    return (width - hW) / 2;
-                }
-                function targetY() {
-                    if (root.tbEdge === "top") return topGap;
-                    if (root.tbEdge === "left" || root.tbEdge === "right") return (height - vH) / 2;
-                    if (root.tbEdge === "free") {
-                        var th = vert ? vH : hH;
-                        return Math.max(m, Math.min(height - th - m, root.tbFreeY));
-                    }
-                    return height - hH - bottomGap;
-                }
-                AnnoToolbar {
-                    id: tbar
-                    z: 1
-                    anno: root
-                    fam: root.fam
-                    dark: root.dark
-                    tint: root.tint
-                    fillA: 0.40
-                    grip: true
-                    vertical: tbHost.vert
-                    appear: root.tbAppear
-                    readonly property real slide: (1 - Math.min(1, root.tbAppear)) * 22
-                    x: (tbHost.dragging ? tbHost.dragX : tbHost.targetX()) + (root.tbEdge === "left" ? -slide : (root.tbEdge === "right" ? slide : 0))
-                    y: (tbHost.dragging ? tbHost.dragY : tbHost.targetY()) + ((root.tbEdge === "left" || root.tbEdge === "right") ? 0 : slide)
-                    Behavior on x { enabled: !tbHost.dragging; NumberAnimation { duration: 380; easing.type: Easing.OutCubic } }
-                    Behavior on y { enabled: !tbHost.dragging; NumberAnimation { duration: 380; easing.type: Easing.OutCubic } }
-                    scale: tbHost.dragging ? 1.03 : 1
-                    Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutBack } }
-                    onDoneClicked: root.setPen(false)
-                }
-                // sits under the bar: takes the presses the buttons don't (grip, dividers, padding)
-                // and catches presses forwarded from buttons when Super is held
-                MouseArea {
-                    id: dragMa
-                    anchors.fill: tbHost.dragging ? parent : undefined
-                    x: tbHost.dragging ? 0 : tbar.x
-                    y: tbHost.dragging ? 0 : tbar.y
-                    width: tbHost.dragging ? tbHost.width : tbar.width
-                    height: tbHost.dragging ? tbHost.height : tbar.height
-                    z: tbHost.dragging ? 20 : 0
-                    preventStealing: true
-                    cursorShape: tbHost.dragging ? Qt.ClosedHandCursor : Qt.OpenHandCursor
-                    property real grabOffsetX: 0
-                    property real grabOffsetY: 0
-                    property real lastX: 0
-                    property real lastY: 0
-                    property real lastT: 0
-                    property real vx: 0
-                    property real vy: 0
-
-                    onPressed: m => {
-                        var p = tbHost.dragging ? ({ x: m.x, y: m.y }) : dragMa.mapToItem(tbHost, m.x, m.y);
-                        tbHost.sideVertical = (root.tbEdge === "left" || root.tbEdge === "right");
-                        grabOffsetX = p.x - tbar.x;
-                        grabOffsetY = p.y - tbar.y;
-                        lastX = p.x;
-                        lastY = p.y;
-                        lastT = Date.now();
-                        vx = 0;
-                        vy = 0;
-                        tbHost.dragX = tbar.x;
-                        tbHost.dragY = tbar.y;
-                        tbHost.dragging = true;
-                    }
-
-                    onPositionChanged: m => {
-                        if (!pressed) return;
-                        var px = m.x, py = m.y;
-                        var now = Date.now(), dt = Math.max(1, now - lastT);
-                        vx = vx * 0.5 + ((px - lastX) / dt) * 0.5;
-                        vy = vy * 0.5 + ((py - lastY) / dt) * 0.5;
-                        lastX = px;
-                        lastY = py;
-                        lastT = now;
-
-                        var W = tbHost.width;
-                        var wasVert = tbHost.sideVertical;
-                        if (!wasVert) {
-                            if (px < 160 || px > W - 160 || tbHost.dragX < 40 || tbHost.dragX + tbar.width > W - 40) {
-                                tbHost.sideVertical = true;
-                                grabOffsetX = tbar.vTargetW / 2;
-                                grabOffsetY = Math.max(20, Math.min(tbar.vTargetH - 20, py - tbHost.dragY));
-                            }
-                        } else {
-                            if (px > 280 && px < W - 280) {
-                                tbHost.sideVertical = false;
-                                grabOffsetX = Math.max(20, Math.min(tbar.hTargetW - 20, px - tbHost.dragX));
-                                grabOffsetY = tbar.hTargetH / 2;
-                            }
-                        }
-
-                        var curW = tbar.width;
-                        var curH = tbar.height;
-                        tbHost.dragX = Math.max(0, Math.min(tbHost.width - curW, px - grabOffsetX));
-                        tbHost.dragY = Math.max(0, Math.min(tbHost.height - curH, py - grabOffsetY));
-                    }
-
-                    onReleased: {
-                        var W = tbHost.width, H = tbHost.height;
-                        var x = tbHost.dragX, y = tbHost.dragY;
-                        var spd = Math.max(Math.abs(vx), Math.abs(vy));
-                        var thrown = (Date.now() - lastT < 140) && (spd > 0.35);
-                        var edge = "free";
-                        if (thrown) {
-                            if (Math.abs(vx) > Math.abs(vy)) {
-                                edge = vx < 0 ? "left" : "right";
-                            } else {
-                                edge = vy < 0 ? "top" : "bottom";
-                            }
-                        } else {
-                            var best = 1e9, d;
-                            d = x;
-                            if ((tbHost.sideVertical || d < 160) && d < best) { best = d; edge = "left"; }
-                            d = W - (x + tbar.width);
-                            if ((tbHost.sideVertical || d < 160) && d < best) { best = d; edge = "right"; }
-                            d = y;
-                            if (!tbHost.sideVertical && d < 120 && d < best) { best = d; edge = "top"; }
-                            d = H - (y + tbar.height);
-                            if (!tbHost.sideVertical && d < 120 + tbHost.bottomGap && d < best) { best = d; edge = "bottom"; }
-                        }
-                        root.tbFreeX = x;
-                        root.tbFreeY = y;
-                        root.tbEdge = edge;
-                        tbHost.dragging = false;
-                    }
-
-                    onCanceled: tbHost.dragging = false
-                }
-            }
-        }
-    }
-
-    // ═════════════ "Annotate" picker ═════════════
-    PanelWindow {
-        id: pickWin
-        screen: root.uiScreen
-        visible: root.pickerOpen || pickA > 0.001
-        property real pickA: root.pickerOpen ? 1 : 0
-        Behavior on pickA { NumberAnimation { duration: root.pickerOpen ? 560 : 240; easing.type: root.pickerOpen ? Easing.OutBack : Easing.InCubic; easing.overshoot: 0.9 } }
-        implicitWidth: card.width + 2 * card.sp
-        implicitHeight: card.height + 2 * card.sp
-        color: "transparent"
-        exclusionMode: ExclusionMode.Ignore
-        mask: Region { item: card }
-        WlrLayershell.namespace: "macannotate-ui"
-        WlrLayershell.layer: WlrLayer.Overlay
-        WlrLayershell.keyboardFocus: root.pickerOpen ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
-        onVisibleChanged: if (visible) keyCatcher.forceActiveFocus()
-
-        AnnoGlass {
-            id: card
-            x: sp; y: sp
-            width: 556; height: 292
-            radius: 34
-            dark: root.dark
-            tint: root.tint
-            fillA: 0.40
-            appear: pickWin.pickA
-
-            Item {
-                id: keyCatcher
-                anchors.fill: parent
-                focus: true
-                Keys.onPressed: e => {
-                    if (e.key === Qt.Key_Left || e.key === Qt.Key_Up) { root.pickSel = 0; e.accepted = true; }
-                    else if (e.key === Qt.Key_Right || e.key === Qt.Key_Down || e.key === Qt.Key_Tab) { root.pickSel = e.key === Qt.Key_Tab ? 1 - root.pickSel : 1; e.accepted = true; }
-                    else if (e.key === Qt.Key_Return || e.key === Qt.Key_Enter || e.key === Qt.Key_Space) { root.choose(root.pickSel); e.accepted = true; }
-                    else if (e.key === Qt.Key_1) { root.choose(0); e.accepted = true; }
-                    else if (e.key === Qt.Key_2) { root.choose(1); e.accepted = true; }
-                    else if (e.key === Qt.Key_Escape) { root.closePicker(); e.accepted = true; }
-                }
-            }
-
-            Text {
-                y: 24; width: parent.width
-                horizontalAlignment: Text.AlignHCenter
-                text: qsTr("Annotate")
-                color: root.fg
-                font.family: root.fontFor(Font.DemiBold); font.pixelSize: 19; font.weight: Font.DemiBold
-            }
-
-            Repeater {
-                model: [
-                    { name: qsTr("Screen"), hint: qsTr("Draw over your windows") },
-                    { name: qsTr("Whiteboard"), hint: qsTr("A blank white canvas") }
-                ]
-                delegate: Item {
-                    id: tile
-                    required property var modelData
-                    required property int index
-                    x: 30 + index * 248; y: 66
-                    width: 238; height: 168
-                    readonly property bool sel: root.pickSel === index
-                    scale: sel ? 1.035 : 1
-                    Behavior on scale { NumberAnimation { duration: 380; easing.type: Easing.OutBack; easing.overshoot: 1.4 } }
-                    Rectangle {
-                        anchors.fill: parent; radius: 24; antialiasing: true
-                        color: tile.sel ? Qt.rgba(1, 1, 1, root.dark ? 0.15 : 0.60) : Qt.rgba(1, 1, 1, root.dark ? 0.06 : 0.28)
-                        border.width: tile.sel ? 1.6 : 1
-                        border.color: tile.sel ? Qt.rgba(0.04, 0.52, 1, 0.95) : Qt.rgba(1, 1, 1, root.dark ? 0.14 : 0.5)
-                        Behavior on color { ColorAnimation { duration: 240 } }
-                        Behavior on border.color { ColorAnimation { duration: 240 } }
-                    }
-                    // illustration
-                    Canvas {
-                        x: (parent.width - 150) / 2; y: 16
-                        width: 150; height: 92
-                        property bool selNow: tile.sel
-                        onSelNowChanged: requestPaint()
-                        Component.onCompleted: requestPaint()
-                        onPaint: {
-                            var c = getContext("2d");
-                            c.reset(); c.clearRect(0, 0, width, height);
-                            c.lineCap = "round"; c.lineJoin = "round";
-                            function rr(x, y, w, h, r) {
-                                c.beginPath(); c.moveTo(x + r, y); c.lineTo(x + w - r, y); c.arc(x + w - r, y + r, r, -Math.PI / 2, 0);
-                                c.lineTo(x + w, y + h - r); c.arc(x + w - r, y + h - r, r, 0, Math.PI / 2); c.lineTo(x + r, y + h);
-                                c.arc(x + r, y + h - r, r, Math.PI / 2, Math.PI); c.lineTo(x, y + r); c.arc(x + r, y + r, r, Math.PI, Math.PI * 1.5); c.closePath();
-                            }
-                            if (tile.index === 0) {
-                                rr(6, 12, 92, 62, 9); c.fillStyle = root.dark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.06)"; c.fill();
-                                c.strokeStyle = root.dark ? "rgba(255,255,255,0.45)" : "rgba(0,0,0,0.35)"; c.lineWidth = 1.5; c.stroke();
-                                c.beginPath(); c.moveTo(6, 27); c.lineTo(98, 27); c.stroke();
-                                rr(52, 36, 88, 52, 9); c.fillStyle = root.dark ? "rgba(255,255,255,0.14)" : "rgba(255,255,255,0.7)"; c.fill(); c.stroke();
-                                c.strokeStyle = "#FF453A"; c.lineWidth = 3.4;
-                                c.beginPath(); c.moveTo(24, 66); c.bezierCurveTo(44, 30, 62, 84, 82, 52); c.bezierCurveTo(92, 36, 104, 44, 118, 30); c.stroke();
-                            } else {
-                                rr(10, 8, 130, 80, 11); c.fillStyle = "#FAFAFC"; c.fill();
-                                c.strokeStyle = "rgba(0,0,0,0.18)"; c.lineWidth = 1.2; c.stroke();
-                                c.fillStyle = "rgba(0,0,0,0.12)";
-                                for (var gy = 0; gy < 4; gy++) for (var gx = 0; gx < 7; gx++) { c.beginPath(); c.arc(28 + gx * 16, 26 + gy * 17, 1.1, 0, Math.PI * 2); c.fill(); }
-                                c.strokeStyle = "#0A84FF"; c.lineWidth = 3.4;
-                                c.beginPath(); c.moveTo(30, 62); c.bezierCurveTo(46, 24, 62, 78, 80, 44); c.bezierCurveTo(90, 26, 104, 40, 120, 28); c.stroke();
-                                c.strokeStyle = "#FF9F0A"; c.lineWidth = 3;
-                                c.beginPath(); c.arc(44, 30, 8, 0, Math.PI * 2); c.stroke();
-                            }
-                        }
-                    }
-                    Text {
-                        y: 114; width: parent.width
-                        horizontalAlignment: Text.AlignHCenter
-                        text: tile.modelData.name
-                        color: root.fg
-                        font.family: root.fontFor(Font.DemiBold); font.pixelSize: 15; font.weight: Font.DemiBold
-                    }
-                    Text {
-                        y: 138; width: parent.width
-                        horizontalAlignment: Text.AlignHCenter
-                        text: tile.modelData.hint
-                        color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.55)
-                        font.family: root.fontFor(Font.Normal); font.pixelSize: 12
-                    }
-                    MouseArea {
-                        anchors.fill: parent; hoverEnabled: true
-                        onEntered: root.pickSel = tile.index
-                        onClicked: root.choose(tile.index)
-                    }
-                }
-            }
-
-            Text {
-                y: 252; width: parent.width
-                horizontalAlignment: Text.AlignHCenter
-                text: "\u2190 \u2192   \u21B5   esc"
-                color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.38)
-                font.family: root.fontFor(Font.Normal); font.pixelSize: 12
-            }
-        }
-    }
-
-    // ═════════════ the hold ring / toast ═════════════
-    PanelWindow {
-        id: hudWin
-        screen: root.uiScreen
-        visible: root.hudA > 0.001
-        anchors.bottom: true
-        margins.bottom: 168
-        implicitWidth: hud.width + 2 * hud.sp
-        implicitHeight: hud.height + 2 * hud.sp
-        color: "transparent"
-        exclusionMode: ExclusionMode.Ignore
-        mask: Region { }
-        WlrLayershell.namespace: "macannotate-ui"
-        WlrLayershell.layer: WlrLayer.Overlay
-        WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
-        AnnoGlass {
-            id: hud
-            x: sp; y: sp + (1 - Math.min(1, root.hudA)) * 14
-            width: hudRow.width + 40; height: 52; radius: 26
-            dark: root.dark; tint: root.tint; fillA: 0.40
-            appear: root.hudA
-            Row {
-                id: hudRow
-                anchors.centerIn: parent
-                spacing: 11
-                Canvas {
-                    id: ring
-                    width: 24; height: 24
-                    anchors.verticalCenter: parent.verticalCenter
-                    property real p: root.holdP
-                    property bool holding: root.holdP > 0.01
-                    onPChanged: requestPaint()
-                    onHoldingChanged: requestPaint()
-                    onPaint: {
-                        var c = getContext("2d");
-                        c.reset(); c.clearRect(0, 0, width, height);
-                        c.lineCap = "round"; c.lineWidth = 2.6;
-                        if (holding) {
-                            c.strokeStyle = Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.2);
-                            c.beginPath(); c.arc(12, 12, 9, 0, Math.PI * 2); c.stroke();
-                            c.strokeStyle = "#FF453A";
-                            c.beginPath(); c.arc(12, 12, 9, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * p); c.stroke();
-                        } else {
-                            c.strokeStyle = "#30D158"; c.lineWidth = 2.8; c.lineJoin = "round";
-                            c.beginPath(); c.moveTo(5.5, 12.5); c.lineTo(10, 17); c.lineTo(18.5, 7.5); c.stroke();
-                        }
-                    }
-                }
-                Text {
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: root.holdP > 0.01 ? qsTr("Clear all") : root.hudMsg
-                    color: root.fg
-                    font.family: root.fontFor(Font.DemiBold); font.pixelSize: 14; font.weight: Font.DemiBold
-                }
-            }
-        }
     }
 
     // ═════════════ the whiteboard: a window of its own ═════════════
@@ -792,11 +172,11 @@ Scope {
         property real appear: 0
         property bool gridOn: true
         property int floatTries: 0
-        Behavior on appear { NumberAnimation { duration: root.boardOpen ? 520 : 240; easing.type: root.boardOpen ? Easing.OutBack : Easing.InCubic; easing.overshoot: 0.8 } }
+        Behavior on appear { NumberAnimation { duration: root.boardOpen ? 420 : 220; easing.type: root.boardOpen ? Easing.OutBack : Easing.InCubic; easing.overshoot: 0.8 } }
 
         function openIt() { visible = true; appear = 1; floatTries = 0; floatTimer.restart(); raise(); requestActivate(); }
         function closeIt() { appear = 0; hideT.restart(); }
-        Timer { id: hideT; interval: 270; onTriggered: if (!root.boardOpen) boardWin.visible = false }
+        Timer { id: hideT; interval: 230; onTriggered: if (!root.boardOpen) boardWin.visible = false }
         Timer {
             id: floatTimer
             interval: 60; repeat: true
