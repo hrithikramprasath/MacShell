@@ -438,17 +438,29 @@ Scope {
                 readonly property real bottomGap: 104
                 readonly property real topGap: 56
                 readonly property bool vert: dragging ? sideVertical : (root.tbEdge === "left" || root.tbEdge === "right")
+
+                readonly property real hW: tbar.hTargetW
+                readonly property real hH: tbar.hTargetH
+                readonly property real vW: tbar.vTargetW
+                readonly property real vH: tbar.vTargetH
+
                 function targetX() {
                     if (root.tbEdge === "left") return m;
-                    if (root.tbEdge === "right") return width - tbar.width - m;
-                    if (root.tbEdge === "free") return Math.max(m, Math.min(width - tbar.width - m, root.tbFreeX));
-                    return (width - tbar.width) / 2;
+                    if (root.tbEdge === "right") return width - vW - m;
+                    if (root.tbEdge === "free") {
+                        var tw = vert ? vW : hW;
+                        return Math.max(m, Math.min(width - tw - m, root.tbFreeX));
+                    }
+                    return (width - hW) / 2;
                 }
                 function targetY() {
                     if (root.tbEdge === "top") return topGap;
-                    if (root.tbEdge === "left" || root.tbEdge === "right") return (height - tbar.height) / 2;
-                    if (root.tbEdge === "free") return Math.max(m, Math.min(height - tbar.height - m, root.tbFreeY));
-                    return height - tbar.height - bottomGap;
+                    if (root.tbEdge === "left" || root.tbEdge === "right") return (height - vH) / 2;
+                    if (root.tbEdge === "free") {
+                        var th = vert ? vH : hH;
+                        return Math.max(m, Math.min(height - th - m, root.tbFreeY));
+                    }
+                    return height - hH - bottomGap;
                 }
                 AnnoToolbar {
                     id: tbar
@@ -464,82 +476,108 @@ Scope {
                     readonly property real slide: (1 - Math.min(1, root.tbAppear)) * 22
                     x: (tbHost.dragging ? tbHost.dragX : tbHost.targetX()) + (root.tbEdge === "left" ? -slide : (root.tbEdge === "right" ? slide : 0))
                     y: (tbHost.dragging ? tbHost.dragY : tbHost.targetY()) + ((root.tbEdge === "left" || root.tbEdge === "right") ? 0 : slide)
-                    Behavior on x { enabled: !tbHost.dragging; NumberAnimation { duration: 520; easing.type: Easing.OutBack; easing.overshoot: 0.8 } }
-                    Behavior on y { enabled: !tbHost.dragging; NumberAnimation { duration: 520; easing.type: Easing.OutBack; easing.overshoot: 0.8 } }
+                    Behavior on x { enabled: !tbHost.dragging; NumberAnimation { duration: 380; easing.type: Easing.OutCubic } }
+                    Behavior on y { enabled: !tbHost.dragging; NumberAnimation { duration: 380; easing.type: Easing.OutCubic } }
                     scale: tbHost.dragging ? 1.03 : 1
+                    Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutBack } }
                     onDoneClicked: root.setPen(false)
                 }
                 // sits under the bar: takes the presses the buttons don't (grip, dividers, padding)
                 // and catches presses forwarded from buttons when Super is held
                 MouseArea {
                     id: dragMa
-                    x: tbar.x; y: tbar.y; width: tbar.width; height: tbar.height
-                    z: 0
+                    anchors.fill: tbHost.dragging ? parent : undefined
+                    x: tbHost.dragging ? 0 : tbar.x
+                    y: tbHost.dragging ? 0 : tbar.y
+                    width: tbHost.dragging ? tbHost.width : tbar.width
+                    height: tbHost.dragging ? tbHost.height : tbar.height
+                    z: tbHost.dragging ? 20 : 0
                     preventStealing: true
                     cursorShape: tbHost.dragging ? Qt.ClosedHandCursor : Qt.OpenHandCursor
-                    property real fx: 0.5
-                    property real fy: 0.5
+                    property real grabOffsetX: 0
+                    property real grabOffsetY: 0
                     property real lastX: 0
                     property real lastY: 0
                     property real lastT: 0
                     property real vx: 0
                     property real vy: 0
-                    function pos(m) { return dragMa.mapToItem(tbHost, m.x, m.y); }
+
                     onPressed: m => {
-                        var p = pos(m);
+                        var p = tbHost.dragging ? ({ x: m.x, y: m.y }) : dragMa.mapToItem(tbHost, m.x, m.y);
                         tbHost.sideVertical = (root.tbEdge === "left" || root.tbEdge === "right");
-                        fx = (p.x - tbar.x) / Math.max(1, tbar.width);
-                        fy = (p.y - tbar.y) / Math.max(1, tbar.height);
-                        lastX = p.x; lastY = p.y; lastT = Date.now(); vx = 0; vy = 0;
-                        tbHost.dragX = tbar.x; tbHost.dragY = tbar.y;
+                        grabOffsetX = p.x - tbar.x;
+                        grabOffsetY = p.y - tbar.y;
+                        lastX = p.x;
+                        lastY = p.y;
+                        lastT = Date.now();
+                        vx = 0;
+                        vy = 0;
+                        tbHost.dragX = tbar.x;
+                        tbHost.dragY = tbar.y;
                         tbHost.dragging = true;
                     }
+
                     onPositionChanged: m => {
                         if (!pressed) return;
-                        var p = pos(m), now = Date.now(), dt = Math.max(1, now - lastT);
-                        vx = vx * 0.6 + ((p.x - lastX) / dt) * 0.4;
-                        vy = vy * 0.6 + ((p.y - lastY) / dt) * 0.4;
-                        lastX = p.x; lastY = p.y; lastT = now;
+                        var px = m.x, py = m.y;
+                        var now = Date.now(), dt = Math.max(1, now - lastT);
+                        vx = vx * 0.5 + ((px - lastX) / dt) * 0.5;
+                        vy = vy * 0.5 + ((py - lastY) / dt) * 0.5;
+                        lastX = px;
+                        lastY = py;
+                        lastT = now;
 
                         var W = tbHost.width;
                         var wasVert = tbHost.sideVertical;
                         if (!wasVert) {
-                            if (p.x < 150 || p.x > W - 150) {
+                            if (px < 160 || px > W - 160 || tbHost.dragX < 40 || tbHost.dragX + tbar.width > W - 40) {
                                 tbHost.sideVertical = true;
-                                fx = 0.5;
-                                fy = Math.max(0.1, Math.min(0.9, (p.y - tbHost.dragY) / Math.max(1, tbar.height)));
+                                grabOffsetX = tbar.vTargetW / 2;
+                                grabOffsetY = Math.max(20, Math.min(tbar.vTargetH - 20, py - tbHost.dragY));
                             }
                         } else {
-                            if (p.x > 260 && p.x < W - 260) {
+                            if (px > 280 && px < W - 280) {
                                 tbHost.sideVertical = false;
-                                fy = 0.5;
-                                fx = Math.max(0.1, Math.min(0.9, (p.x - tbHost.dragX) / Math.max(1, tbar.width)));
+                                grabOffsetX = Math.max(20, Math.min(tbar.hTargetW - 20, px - tbHost.dragX));
+                                grabOffsetY = tbar.hTargetH / 2;
                             }
                         }
 
-                        tbHost.dragX = Math.max(0, Math.min(tbHost.width - tbar.width, p.x - fx * tbar.width));
-                        tbHost.dragY = Math.max(0, Math.min(tbHost.height - tbar.height, p.y - fy * tbar.height));
+                        var curW = tbar.width;
+                        var curH = tbar.height;
+                        tbHost.dragX = Math.max(0, Math.min(tbHost.width - curW, px - grabOffsetX));
+                        tbHost.dragY = Math.max(0, Math.min(tbHost.height - curH, py - grabOffsetY));
                     }
+
                     onReleased: {
-                        var W = tbHost.width, H = tbHost.height, w = tbar.width, h = tbar.height;
+                        var W = tbHost.width, H = tbHost.height;
                         var x = tbHost.dragX, y = tbHost.dragY;
                         var spd = Math.max(Math.abs(vx), Math.abs(vy));
-                        var thrown = (Date.now() - lastT < 140) && (spd > 0.40);
+                        var thrown = (Date.now() - lastT < 140) && (spd > 0.35);
                         var edge = "free";
                         if (thrown) {
-                            if (Math.abs(vx) > Math.abs(vy)) edge = vx < 0 ? "left" : "right";
-                            else edge = vy < 0 ? "top" : "bottom";
+                            if (Math.abs(vx) > Math.abs(vy)) {
+                                edge = vx < 0 ? "left" : "right";
+                            } else {
+                                edge = vy < 0 ? "top" : "bottom";
+                            }
                         } else {
                             var best = 1e9, d;
-                            d = x; if ((tbHost.sideVertical || d < 140) && d < best) { best = d; edge = "left"; }
-                            d = W - (x + w); if ((tbHost.sideVertical || d < 140) && d < best) { best = d; edge = "right"; }
-                            d = y; if (!tbHost.sideVertical && d < 110 && d < best) { best = d; edge = "top"; }
-                            d = H - (y + h); if (!tbHost.sideVertical && d < 110 + tbHost.bottomGap && d < best) { best = d; edge = "bottom"; }
+                            d = x;
+                            if ((tbHost.sideVertical || d < 160) && d < best) { best = d; edge = "left"; }
+                            d = W - (x + tbar.width);
+                            if ((tbHost.sideVertical || d < 160) && d < best) { best = d; edge = "right"; }
+                            d = y;
+                            if (!tbHost.sideVertical && d < 120 && d < best) { best = d; edge = "top"; }
+                            d = H - (y + tbar.height);
+                            if (!tbHost.sideVertical && d < 120 + tbHost.bottomGap && d < best) { best = d; edge = "bottom"; }
                         }
-                        root.tbFreeX = x; root.tbFreeY = y;
+                        root.tbFreeX = x;
+                        root.tbFreeY = y;
                         root.tbEdge = edge;
                         tbHost.dragging = false;
                     }
+
                     onCanceled: tbHost.dragging = false
                 }
             }

@@ -13,37 +13,35 @@ AnnoGlass {
     signal doneClicked()
     signal gridClicked()
 
+    readonly property real hTargetW: (showGrid ? 702 : 664) + 30
+    readonly property real hTargetH: 60
+    readonly property real vTargetW: 62
+    readonly property real vTargetH: (showGrid ? 702 : 664) + 30
+
     dynamicShadow: true
-    verticalShadow: tb.v
-    hShadowW: row.width + 30
-    hShadowH: 60
-    vShadowW: 62
-    vShadowH: row.height + 30
+    verticalShadow: morph >= 0.5
+    hShadowW: hTargetW
+    hShadowH: hTargetH
+    vShadowW: vTargetW
+    vShadowH: vTargetH
 
     readonly property color fg: dark ? "#F5F5F7" : "#1D1D1F"
     readonly property var tools: ["pen", "highlighter", "eraser"]
-    readonly property bool v: vertical
-    height: v ? row.height + 30 : 60
-    width: v ? 62 : row.width + 30
+
+    property real morph: vertical ? 1 : 0
+    Behavior on morph { NumberAnimation { duration: 320; easing.type: Easing.InOutCubic } }
+
+    readonly property bool v: morph >= 0.5
+    width: morph < 0.5 ? (hTargetW - (hTargetW - vTargetW) * (morph / 0.5)) : vTargetW
+    height: morph < 0.5 ? hTargetH : (hTargetH + (vTargetH - hTargetH) * ((morph - 0.5) / 0.5))
     radius: Math.min(width, height) / 2
-    Behavior on width { NumberAnimation { duration: 420; easing.type: Easing.OutCubic } }
-    Behavior on height { NumberAnimation { duration: 420; easing.type: Easing.OutCubic } }
 
     Grid {
         id: row
         anchors.centerIn: parent
         spacing: 0
         columns: tb.v ? 1 : 40
-        // a quick dip while the bar turns, so the re-layout between horizontal and vertical reads as one motion
-        opacity: 1
-        property bool vs: tb.v
-        onVsChanged: flip.restart()
-        SequentialAnimation {
-            id: flip
-            NumberAnimation { target: row; property: "opacity"; to: 0; duration: 110; easing.type: Easing.InCubic }
-            PauseAnimation { duration: 90 }
-            NumberAnimation { target: row; property: "opacity"; to: 1; duration: 260; easing.type: Easing.OutCubic }
-        }
+        opacity: morph < 0.5 ? Math.max(0, 1 - (morph / 0.35)) : Math.max(0, (morph - 0.65) / 0.35)
 
         // grip: shows where to grab the bar to move it
         Item {
