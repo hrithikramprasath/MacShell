@@ -4528,6 +4528,7 @@ Scope {
         refreshWifi();
         refreshKeyboardLayout();
         refreshConnections();
+        checkStash();
     }
 
     // ═════════════ SETTINGS ═════════════
@@ -4994,6 +4995,30 @@ Scope {
     }
 
     // ═════════════ WORKSPACES (centre of the bar) ═════════════
+    property bool stashActive: false
+    Process {
+        id: stashCheckProc
+        command: ["hyprctl", "-j", "monitors"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    var mons = JSON.parse(text);
+                    var active = false;
+                    for (var i = 0; i < mons.length; i++) {
+                        var sw = mons[i].specialWorkspace;
+                        if (sw && sw.name && sw.name !== "") { active = true; break; }
+                    }
+                    root.stashActive = active;
+                } catch (e) {}
+            }
+        }
+    }
+    function checkStash() {
+        if (!stashCheckProc.running) stashCheckProc.running = true;
+    }
+    function toggleStash() {
+        Quickshell.execDetached(["hyprctl", "dispatch", "hl.dsp.workspace.toggle_special(\"magic\")"]);
+    }
     function hlWorkspace(sel) {      // Hyprland 0.55+ (Lua) workspace switch
         Quickshell.execDetached(["hyprctl", "dispatch", "hl.dsp.focus({ workspace = \"" + sel + "\" })"]);
     }
@@ -5006,6 +5031,14 @@ Scope {
             var n = event.name;
             if (n === "createworkspacev2" || n === "destroyworkspacev2" || n === "workspacev2" || n === "moveworkspacev2" || n === "renameworkspace")
                 Hyprland.refreshWorkspaces();
+            if (n === "activespecial" || n === "activespecialv2") {
+                var d = String(event.data || "");
+                var sp = d.split(",")[0].trim();
+                root.stashActive = (sp !== "" && sp !== "0");
+                root.checkStash();
+            } else if (n === "workspacev2" || n === "focusedmonv2") {
+                root.checkStash();
+            }
         }
     }
     readonly property var wsIds: {
@@ -6032,30 +6065,37 @@ Scope {
                                 required property var modelData
                                 readonly property bool cur: wsRow.activeId === modelData
                                 readonly property bool busy: root.wsOccupied(modelData)
-                                width: 22; height: 28
+                                readonly property bool inStash: wsi.cur && root.stashActive
+                                width: inStash ? 54 : 22; height: 28
+                                Behavior on width { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
                                 Rectangle {
                                     anchors.centerIn: parent
                                     width: parent.width - 2
                                     height: parent.height - 6
                                     radius: 6
-                                    color: wsi.cur ? bpal.hover : "transparent"
+                                    color: wsi.inStash ? Qt.rgba(bpal.accent.r, bpal.accent.g, bpal.accent.b, 0.24) : (wsi.cur ? bpal.hover : "transparent")
                                     opacity: wsi.cur || wsMa.containsMouse ? 1 : 0
                                     Behavior on opacity { NumberAnimation { duration: 140 } }
+                                    Behavior on color { ColorAnimation { duration: 140 } }
                                 }
                                 Text {
                                     anchors.centerIn: parent
-                                    text: "" + wsi.modelData
-                                    color: wsi.cur ? bpal.fg : (wsi.busy ? bpal.fg2 : bpal.fg3)
-                                    font.family: root.fontForWeight((wsi.cur ? Font.DemiBold : Font.Normal), bpal.fam)
-                                    font.pixelSize: 13
-                                    font.weight: wsi.cur ? Font.DemiBold : Font.Normal
+                                    text: wsi.inStash ? "Stash" : ("" + wsi.modelData)
+                                    color: wsi.inStash ? bpal.accent : (wsi.cur ? bpal.fg : (wsi.busy ? bpal.fg2 : bpal.fg3))
+                                    font.family: root.fontForWeight((wsi.cur || wsi.inStash ? Font.DemiBold : Font.Normal), bpal.fam)
+                                    font.pixelSize: wsi.inStash ? 12 : 13
+                                    font.weight: wsi.cur || wsi.inStash ? Font.DemiBold : Font.Normal
                                     Behavior on color { ColorAnimation { duration: 140 } }
                                 }
                                 MouseArea {
                                     id: wsMa
                                     anchors.fill: parent
                                     hoverEnabled: true
-                                    onClicked: { ui.pop = ""; root.hlWorkspace("" + wsi.modelData); }
+                                    onClicked: {
+                                        ui.pop = "";
+                                        if (wsi.inStash) root.toggleStash();
+                                        else root.hlWorkspace("" + wsi.modelData);
+                                    }
                                 }
                             }
                         }

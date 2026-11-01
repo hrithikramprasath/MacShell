@@ -50,6 +50,8 @@ Scope {
             if (root.appearanceMode !== root.bar.appearanceMode) root.appearanceMode = root.bar.appearanceMode;
         }
     }
+    readonly property bool stashActive: (root.bar && root.bar.stashActive !== undefined) ? root.bar.stashActive : _stashLocal
+    property bool _stashLocal: false
     property string userName: Quickshell.env("USER") || ""
 
     // ═════ Displays: main display + resolution / refresh, with a macOS-style "keep or revert" safety net ═════
@@ -4919,6 +4921,9 @@ Scope {
             var mon = monData[m];
             if (!mon || mon.id === undefined || !mon.name) continue;
             var ids = [mon.activeWorkspace && mon.activeWorkspace.id !== undefined ? mon.activeWorkspace.id : -999];
+            if (mon.specialWorkspace && mon.specialWorkspace.name && mon.specialWorkspace.name !== "") {
+                busy[mon.name] = true;
+            }
             if (mon.specialWorkspace && mon.specialWorkspace.id !== undefined && mon.specialWorkspace.id !== 0) ids.push(mon.specialWorkspace.id);
             for (var c = 0; c < clients.length; c++) {
                 var cl = clients[c];
@@ -4953,7 +4958,17 @@ Scope {
     }
     Connections {
         target: Hyprland
-        function onRawEvent(event) { busyDebounce.restart(); tickDebounce.restart(); }
+        function onRawEvent(event) {
+            var n = event.name;
+            if (n === "activespecial" || n === "activespecialv2") {
+                var d = String(event.data || "");
+                var sp = d.split(",")[0].trim();
+                root._stashLocal = (sp !== "" && sp !== "0");
+                busyDebounce.restart();
+            }
+            busyDebounce.restart();
+            tickDebounce.restart();
+        }
     }
     Timer { id: busyDebounce; interval: 120; onTriggered: root.refreshBusy() }
 
@@ -5017,7 +5032,7 @@ Scope {
             color: "transparent"
 
             exclusionMode: ExclusionMode.Normal
-            exclusiveZone: root.hideMode === "never" ? root.bgHeight + root.margin : 0
+            exclusiveZone: (root.stashActive || root.hideMode !== "never") ? 0 : (root.bgHeight + root.margin)
 
             WlrLayershell.namespace: "macdock"
             WlrLayershell.layer: WlrLayer.Top
@@ -5204,7 +5219,8 @@ Scope {
                     updateMenuTail();
                 }
                 readonly property bool menuOpen: menuItem !== null
-                readonly property bool wantsHide: root.hideMode === "always"
+                readonly property bool wantsHide: root.stashActive
+                    || root.hideMode === "always"
                     || (root.hideMode === "smart" && root.busyMonitors[win.modelData.name] === true)
                 property bool dragging: false
                 property int dragIndex: -1
@@ -5396,7 +5412,7 @@ Scope {
                     onFinished: { ui.tearItem = null; ui.tearAddr = ""; }
                 }
 
-                readonly property bool tucked: wantsHide && !revealed && !menuOpen && !dragging && !tearing
+                readonly property bool tucked: (wantsHide || root.stashActive) && !revealed && !menuOpen && !dragging && !tearing
                 readonly property real refLeft: (width - root.totalW0) / 2
                 readonly property real activeTop: height - root.margin - root.bgHeight
                                                   - root.iconSize * (root.effMag - 1) - 12
@@ -5404,15 +5420,25 @@ Scope {
                 property real strength: active ? 1 : 0
                 Behavior on strength { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
 
+                Connections {
+                    target: root
+                    function onStashActiveChanged() {
+                        if (root.stashActive) {
+                            ui.revealed = false;
+                            ui.menuItem = null;
+                        }
+                    }
+                }
+
                 HoverHandler {
                     id: hh
                     onPointChanged: {
-                        if (!hovered || ui.dragging) return;
+                        if (!hovered || ui.dragging || root.stashActive) return;
                         ui.rawMx = point.position.x;
                         if (ui.strength < 0.02) ui.mx = ui.rawMx;     // coming in from outside: start under the pointer
                     }
                     onHoveredChanged: {
-                        if (hovered) { hideTimer.stop(); ui.revealed = true; }
+                        if (hovered && !root.stashActive) { hideTimer.stop(); ui.revealed = true; }
                         else hideTimer.restart();
                     }
                 }
@@ -5635,9 +5661,9 @@ Scope {
                     // exactly: a new Wayland input region every frame of every pointer move). Always a superset of the Dock.
                     readonly property real maskW: hh.hovered ? Math.min(ui.width, Math.ceil((dock.width + 8) / 64) * 64) : dock.width
                     x: ui.menuOpen ? 0 : (ui.width - maskW) / 2
-                    width: ui.menuOpen ? ui.width : maskW
-                    y: ui.menuOpen ? 0 : (ui.tucked ? ui.height - 3 : (hh.hovered ? ui.activeTop : dock.y))
-                    height: ui.height - y
+                    width: root.stashActive ? 0 : (ui.menuOpen ? ui.width : maskW)
+                    y: root.stashActive ? (ui.height + 100) : (ui.menuOpen ? 0 : (ui.tucked ? ui.height - 3 : (hh.hovered ? ui.activeTop : dock.y)))
+                    height: root.stashActive ? 0 : (ui.height - y)
                 }
 
                 Item {
