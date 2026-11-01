@@ -343,6 +343,7 @@ OPTIONAL=(
     "kitty:kitty:the default terminal"
     "hypridle:hypridle:lock on idle (optional)"
     "wtype:wtype:menu bar keyboard shortcuts in browsers and apps"
+    "usb_modeswitch:usb_modeswitch:switching 2-in-1 Wi-Fi and Bluetooth adapters from CD-ROM to active mode"
 )
 # libraries / fonts / packages without a command to test: arch-package:what-for   (a|b = first one the repositories have)
 LIBS=(
@@ -351,6 +352,8 @@ LIBS=(
     "qt6-svg:SVG app icons"
     "qt6-shadertools:shader tools"
     "qt6-multimedia-ffmpeg|qt6-multimedia:QtMultimedia (video wallpapers; MacShell and MacLock fail to load without it)"
+    "libmysofa:HRTF models for 360 Spatial Audio"
+    "bluez:Bluetooth protocol stack and daemon"
     "upower:battery and power status (Quickshell UPower)"
     "inter-font|ttf-inter:the Inter font"
     "noto-fonts:fallback fonts"
@@ -402,6 +405,7 @@ pkg_for() {
                 networkmanager) echo network-manager ;; bluez-utils) echo bluez ;; libnotify) echo libnotify-bin ;;
                 "inter-font|ttf-inter") echo fonts-inter ;; noto-fonts) echo fonts-noto-core ;;
                 noto-fonts-emoji) echo fonts-noto-color-emoji ;; python) echo python3 ;; qt6-declarative|qt6-wayland|qt6-svg) echo "" ;;
+                usb_modeswitch) echo usb-modeswitch ;;
                 *) printf '%s' "${p%%|*}" ;;
              esac ;;
     esac

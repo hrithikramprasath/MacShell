@@ -62,7 +62,8 @@ fi
 log_step "Installing Arch Linux official dependencies (pacman)..."
 ARCH_PKGS=(
     git base-devel hyprland hypridle
-    pipewire wireplumber pipewire-pulse pipewire-alsa
+    pipewire wireplumber pipewire-pulse pipewire-alsa libmysofa
+    bluez bluez-utils usb_modeswitch networkmanager
     python python-pip playerctl brightnessctl libnotify
     socat jq inotify-tools imagemagick
     nautilus kitty papirus-icon-theme
@@ -70,6 +71,12 @@ ARCH_PKGS=(
 )
 sudo pacman -S --needed --noconfirm "${ARCH_PKGS[@]}"
 log_ok "Official repository packages installed"
+
+# Ensure Bluetooth daemon is enabled and running
+if have systemctl; then
+    sudo systemctl enable --now bluetooth.service 2>/dev/null || true
+    log_ok "Bluetooth service enabled"
+fi
 
 # 3. AUR Helper & Quickshell Setup
 log_step "Checking AUR helper and Quickshell..."
