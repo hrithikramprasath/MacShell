@@ -5,7 +5,7 @@ hl.on("hyprland.start", function()
     hl.exec_cmd("awww-daemon")
     -- Install/update Hypridle's before_sleep_cmd hook (lid close is covered when it suspends).
     hl.exec_cmd("sh ~/.config/quickshell/MacLock/enable-sleep-lock.sh")
-    hl.exec_cmd("sh ~/.local/bin/macshell-start")
+    hl.exec_cmd("systemctl --user start macshell.service || sh ~/.local/bin/macshell-start")
 end)
 -- The Settings window floats and centres itself: the shell registers its own window rule at start-up, so this file needs none.
 
