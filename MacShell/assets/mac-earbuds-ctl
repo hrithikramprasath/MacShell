@@ -280,6 +280,18 @@ def set_spatial_360(enable):
     currently_on = is_spatial_running()
     if enable and not currently_on:
         cmd = None
+        if not os.path.exists(SPATIAL_SOFA_CONF):
+            for candidate in [
+                os.path.join(os.path.dirname(os.path.abspath(__file__)), "spatial-sofa.conf"),
+                os.path.join(CONFIG_HOME, "quickshell", "MacShell", "assets", "spatial-sofa.conf"),
+            ]:
+                if os.path.exists(candidate):
+                    try:
+                        os.makedirs(os.path.dirname(SPATIAL_SOFA_CONF), exist_ok=True)
+                        shutil.copyfile(candidate, SPATIAL_SOFA_CONF)
+                        break
+                    except Exception:
+                        pass
         if os.path.exists(SPATIAL_SOFA_CONF) and command_exists("pipewire"):
             cmd = ["pipewire", "-c", SPATIAL_SOFA_CONF]
         elif command_exists("pw-loopback"):
@@ -611,15 +623,28 @@ def run_daemon():
             if not rfcomm_sock or current_mac != connected_mac:
                 cleanup_rfcomm()
                 connected_mac = current_mac
-                try:
-                    s = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
-                    s.settimeout(2.5)
-                    s.connect((connected_mac, pref_ch))
-                    s.setblocking(False)
-                    handshake = build_samsung_spp_packet(0x88, bytes([0x01, 0x01, 0x22]))
-                    s.sendall(handshake)
-                    rfcomm_sock = s
-                except Exception:
+                channels = [pref_ch] + [c for c in (27, 20, 10, 11, 2, 1, 5, 3, 4) if c != pref_ch]
+                for ch in channels:
+                    s = None
+                    try:
+                        s = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
+                        s.settimeout(1.2)
+                        s.connect((connected_mac, ch))
+                        s.setblocking(False)
+                        handshake = build_samsung_spp_packet(0x88, bytes([0x01, 0x01, 0x22]))
+                        s.sendall(handshake)
+                        rfcomm_sock = s
+                        if ch != pref_ch:
+                            st["rfcommChannel"] = ch
+                            save_state(st)
+                        break
+                    except Exception:
+                        if s:
+                            try:
+                                s.close()
+                            except Exception:
+                                pass
+                if not rfcomm_sock:
                     cleanup_rfcomm()
                     time.sleep(2.0)
                     continue

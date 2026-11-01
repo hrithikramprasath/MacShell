@@ -1676,6 +1676,44 @@ install_extras() {
             && mv -f "$BIN_DIR/.macshell-install.new" "$BIN_DIR/macshell-install" && ln -sf "$BIN_DIR/macshell-install" "$LINK_DIR/macshell-install"
         ok "installer -> $LINK_DIR/macshell-install"
     fi
+
+    # helper tools: mac-earbuds-ctl, mac-discord-ctl, macshell-sync-upstream, spatial audio & daemon
+    mkdir -p "$LINK_DIR" "$ENV_DIR" "$UNIT_DIR"
+    local ctl=""
+    ctl=$(find "$root" -type f -name mac-earbuds-ctl -not -path '*/.git/*' 2>/dev/null | head -n1 || true)
+    if [ -n "$ctl" ]; then
+        cp -f "$ctl" "$LINK_DIR/mac-earbuds-ctl" && chmod +x "$LINK_DIR/mac-earbuds-ctl"
+        ok "earbuds controller -> $LINK_DIR/mac-earbuds-ctl"
+    fi
+    local dctl=""
+    dctl=$(find "$root" -type f -name mac-discord-ctl -not -path '*/.git/*' 2>/dev/null | head -n1 || true)
+    if [ -n "$dctl" ]; then
+        cp -f "$dctl" "$LINK_DIR/mac-discord-ctl" && chmod +x "$LINK_DIR/mac-discord-ctl"
+        ok "discord helper -> $LINK_DIR/mac-discord-ctl"
+    fi
+    local ssync=""
+    ssync=$(find "$root" -type f -name macshell-sync-upstream -not -path '*/.git/*' 2>/dev/null | head -n1 || true)
+    if [ -n "$ssync" ]; then
+        cp -f "$ssync" "$LINK_DIR/macshell-sync-upstream" && chmod +x "$LINK_DIR/macshell-sync-upstream"
+        ok "upstream sync tool -> $LINK_DIR/macshell-sync-upstream"
+    fi
+    local sofa=""
+    sofa=$(find "$root" -type f -name spatial-sofa.conf -not -path '*/.git/*' 2>/dev/null | head -n1 || true)
+    if [ -n "$sofa" ] && [ ! -f "$ENV_DIR/spatial-sofa.conf" ]; then
+        cp -f "$sofa" "$ENV_DIR/spatial-sofa.conf"
+        ok "spatial audio SOFA config -> $ENV_DIR/spatial-sofa.conf"
+    fi
+    local esvc=""
+    esvc=$(find "$root" -type f -name macshell-earbuds-sync.service -not -path '*/.git/*' 2>/dev/null | head -n1 || true)
+    if [ -n "$esvc" ]; then
+        cp -f "$esvc" "$UNIT_DIR/macshell-earbuds-sync.service"
+        ok "earbuds sync service -> $UNIT_DIR/macshell-earbuds-sync.service"
+        if have systemctl && systemctl --user show-environment >/dev/null 2>&1; then
+            systemctl --user daemon-reload 2>/dev/null || true
+            systemctl --user enable --now macshell-earbuds-sync.service 2>/dev/null || true
+            ok "earbuds sync service enabled"
+        fi
+    fi
 }
 
 write_state() {
