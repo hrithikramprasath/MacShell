@@ -19,9 +19,9 @@ local shellkeys = {
     { "SUPER + Space",  qs .. "spotlight toggle"    },
     { "ALT + TAB",      qs .. "switcher next"       },
     { "CTRL + ALT + W", qs .. "wallpapers toggle"   },
-    { "PRINT",          qs .. "screenshot region"   },
     { "SUPER + L",      "sh ~/.config/quickshell/MacLock/lock-via-ipc.sh" },
 }
+pcall(hl.unbind, "PRINT")
 for _, k in ipairs(shellkeys) do
     pcall(hl.unbind, k[1])
     hl.bind(k[1], hl.dsp.exec_cmd(k[2]))
