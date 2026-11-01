@@ -65,9 +65,11 @@ local menu        = "qs -c MacShell ipc call spotlight toggle"
 hl.env("XCURSOR_SIZE", "24")
 hl.env("HYPRCURSOR_SIZE", "24")
 do
+    local home = os.getenv("HOME") or ""
+    local local_bin = home .. "/.local/bin"
     local cur_path = os.getenv("PATH") or "/usr/local/bin:/usr/bin"
-    if not cur_path:find("/home/hrithikramprasath/.local/bin", 1, true) then
-        hl.env("PATH", "/home/hrithikramprasath/.local/bin:" .. cur_path)
+    if not cur_path:find(local_bin, 1, true) then
+        hl.env("PATH", local_bin .. ":" .. cur_path)
     end
 end
 
@@ -473,9 +475,9 @@ for i = 1, 10 do
 end
 
 -- Screenshot & Screen Recording Suite (ALT + F1, F2, F3)
-hl.bind("ALT + F1", hl.dsp.exec_cmd("/home/hrithikramprasath/.local/bin/mac-shot-full"))
-hl.bind("ALT + F2", hl.dsp.exec_cmd("/home/hrithikramprasath/.local/bin/mac-shot-region"))
-hl.bind("ALT + F3", hl.dsp.exec_cmd("/home/hrithikramprasath/.local/bin/mac-record-toggle"))
+hl.bind("ALT + F1", hl.dsp.exec_cmd("sh ~/.local/bin/mac-shot-full"))
+hl.bind("ALT + F2", hl.dsp.exec_cmd("sh ~/.local/bin/mac-shot-region"))
+hl.bind("ALT + F3", hl.dsp.exec_cmd("sh ~/.local/bin/mac-record-toggle"))
 
 -- Example special workspace (scratchpad)
 hl.bind(mainMod .. " + S",         hl.dsp.workspace.toggle_special("magic"))

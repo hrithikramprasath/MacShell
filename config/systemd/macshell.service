@@ -9,7 +9,7 @@ Type=simple
 Environment=MACSHELL_REPO=hrithikramprasath/MacShell
 Environment=MACSHELL_CHANNEL=main
 Environment=QS_ICON_THEME=Papirus-Dark
-ExecStart=/home/hrithikramprasath/.local/bin/macshell-start
+ExecStart=%h/.local/bin/macshell-start
 Restart=always
 RestartSec=1s
 
