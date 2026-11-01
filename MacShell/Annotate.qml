@@ -43,6 +43,11 @@ Scope {
     readonly property real eraseR: eraseRadii[widthIdx]
 
     property bool penOn: false           // annotating the screen
+    property string tbEdge: "bottom"     // where the pen bar rests: bottom | top | left | right | free
+    property real tbFreeX: 0
+    property real tbFreeY: 0
+    property real tbAppear: penOn ? 1 : 0
+    Behavior on tbAppear { NumberAnimation { duration: root.penOn ? 520 : 240; easing.type: root.penOn ? Easing.OutBack : Easing.InCubic; easing.overshoot: 1.05 } }
     property bool pickerOpen: false
     property int pickSel: 0
     property bool boardOpen: false
@@ -61,6 +66,12 @@ Scope {
     }
 
     Binding { target: root.hub; property: "annoWantsGeo"; value: root.wantsGeo; when: root.hub !== null }
+    property int geoRev: 0
+    Connections {
+        target: root.hub
+        function onGlassClientsChanged() { root.geoRev++; }
+        function onMonDataChanged() { root.geoRev++; }
+    }
 
     // ── the ink ──
     property var store: ({})             // anchor key -> [strokes]
@@ -107,6 +118,7 @@ Scope {
         if (!store[key]) store[key] = [];
         store[key].push(stroke);
         inkChanged(key);
+        Qt.callLater(function() { root.inkChanged(key); });
         pushOp({
             undo: function () { var l = store[key] || [], i = l.indexOf(stroke); if (i >= 0) { l.splice(i, 1); inkChanged(key); } },
             redo: function () { ensureKey(key); if (!store[key]) store[key] = []; store[key].push(stroke); inkChanged(key); }
@@ -160,11 +172,11 @@ Scope {
     }
     function monShowsWs(mon, id) {
         if (!mon) return false;
-        if (mon.activeWorkspace && mon.activeWorkspace.id === id) return true;
-        return !!(mon.specialWorkspace && mon.specialWorkspace.id !== 0 && mon.specialWorkspace.id === id);
+        if (mon.activeWorkspace && mon.activeWorkspace.id == id) return true;
+        return !!(mon.specialWorkspace && mon.specialWorkspace.id !== 0 && mon.specialWorkspace.id == id);
     }
     function clientVisible(c, mon) {
-        if (!mon || !c || !c.mapped || c.hidden || c.monitor !== mon.id) return false;
+        if (!mon || !c || !c.mapped || c.hidden || c.monitor != mon.id) return false;
         if (c.title === "MacShell Whiteboard") return false;
         if (c.pinned) return true;
         return !!c.workspace && monShowsWs(mon, c.workspace.id);
@@ -173,6 +185,7 @@ Scope {
 
     // the window (or, on bare desktop, the workspace) a stroke starting at (gx, gy) belongs to
     function resolveAnchor(gx, gy, monName) {
+        var _ = root.geoRev;
         var mon = monByName(monName), cl = hub ? hub.glassClients : [], best = null, bs = -1e9;
         for (var i = 0; i < cl.length; i++) {
             var c = cl[i];
@@ -187,6 +200,7 @@ Scope {
     }
     // where an anchor is right now on this monitor (compositor coordinates), or null when it is not visible there
     function rectFor(key, monName) {
+        var _ = root.geoRev;
         var mon = monByName(monName);
         if (!mon) return null;
         var i;
@@ -341,6 +355,7 @@ Scope {
         function toggle(): void { root.toggle(); }
         function pen(): void { if (root.penOn) root.setPen(false); else { root.closePicker(); if (root.boardOpen) root.closeBoard(); root.setPen(true); } }
         function board(): void { if (root.boardOpen) root.closeBoard(); else { root.closePicker(); root.openBoard(); } }
+        function edge(name: string): void { root.tbEdge = name; }
         function clearPress(): void { root.clearPress(); }
         function clearRelease(): void { root.clearRelease(); }
         function clear(): void { root.clearCurrent(); }
@@ -360,7 +375,7 @@ Scope {
             anchors { left: true; right: true; top: true; bottom: true }
             color: "transparent"
             exclusionMode: ExclusionMode.Ignore
-            visible: root.penOn || root.screenHasInk(modelData.name)
+            visible: root.penOn || root.tbAppear > 0.001 || root.screenHasInk(modelData.name)
             mask: root.penOn ? null : noInput
             WlrLayershell.namespace: "macannotate"
             WlrLayershell.layer: WlrLayer.Overlay
@@ -371,16 +386,21 @@ Scope {
                 delegate: Item {
                     id: dl
                     required property string k
-                    readonly property var r: root.rectFor(k, ink.modelData.name)
-                    visible: r !== null && root.inkCount(k) > 0
+                    property int rev: 0          // bumped whenever this anchor's ink changes, so the bindings below re-run
+                    readonly property var r: { var _ = dl.rev + root.geoRev; return root.rectFor(k, ink.modelData.name); }
+                    visible: dl.rev >= 0 && r !== null && root.inkCount(k) > 0
                     x: r ? Math.round(r.x - ink.modelData.x) : 0
                     y: r ? Math.round(r.y - ink.modelData.y) : 0
-                    width: r ? Math.round(r.w) : 1
-                    height: r ? Math.round(r.h) : 1
+                    width: r ? Math.max(2, Math.round(r.w)) : 2
+                    height: r ? Math.max(2, Math.round(r.h)) : 2
                     clip: true
                     property real fade: 1
                     opacity: fade
                     AnnoCanvas { anchors.fill: parent; anno: root; key: dl.k; scale: 0.985 + 0.015 * dl.fade; transformOrigin: Item.Center }
+                    Component.onCompleted: {
+                        dl.rev++;
+                        root.inkChanged(dl.k);
+                    }
                     SequentialAnimation {
                         id: fadeOut
                         PauseAnimation { id: fadePause; duration: 0 }
@@ -389,6 +409,7 @@ Scope {
                     }
                     Connections {
                         target: root
+                        function onInkChanged(key) { if (key === dl.k) dl.rev++; }
                         function onClearRequested(key, delay) { if (key === dl.k) { fadePause.duration = delay; fadeOut.restart(); } }
                     }
                 }
@@ -400,36 +421,110 @@ Scope {
                 monName: ink.modelData.name
                 active: root.penOn
             }
-        }
-    }
 
-    // ═════════════ the pen palette (screen annotation) ═════════════
-    PanelWindow {
-        id: tbWin
-        screen: root.uiScreen
-        visible: root.penOn || tbAppear > 0.001
-        property real tbAppear: root.penOn ? 1 : 0
-        Behavior on tbAppear { NumberAnimation { duration: root.penOn ? 520 : 240; easing.type: root.penOn ? Easing.OutBack : Easing.InCubic; easing.overshoot: 1.05 } }
-        anchors.bottom: true
-        margins.bottom: 104
-        implicitWidth: tbar.width + 2 * tbar.sp
-        implicitHeight: tbar.height + 2 * tbar.sp
-        color: "transparent"
-        exclusionMode: ExclusionMode.Ignore
-        mask: Region { item: tbar }
-        WlrLayershell.namespace: "macannotate-ui"
-        WlrLayershell.layer: WlrLayer.Overlay
-        WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
-        AnnoToolbar {
-            id: tbar
-            anno: root
-            fam: root.fam
-            dark: root.dark
-            tint: root.tint
-            fillA: 0.40
-            appear: tbWin.tbAppear
-            x: tbar.sp; y: tbar.sp + (1 - Math.min(1, tbWin.tbAppear)) * 22
-            onDoneClicked: root.setPen(false)
+            // ── the pen bar: lives inside the ink window (a separate overlay window sat under it and ate every click) ──
+            // Drag it by its grip or any gap; let go near a screen edge and it glides there (turning vertical on the sides), or
+            // throw it and it flies to the edge you threw it at.
+            Item {
+                id: tbHost
+                anchors.fill: parent
+                z: 10
+                visible: root.uiScreen === ink.modelData && root.tbAppear > 0.001
+                property bool dragging: false
+                property real dragX: 0
+                property real dragY: 0
+                readonly property real m: 18
+                readonly property real bottomGap: 104
+                readonly property real topGap: 56
+                readonly property bool nearSide: dragging && (dragX < 140 || dragX + tbar.width > width - 140)
+                readonly property bool vert: dragging ? nearSide : (root.tbEdge === "left" || root.tbEdge === "right")
+                function targetX() {
+                    if (root.tbEdge === "left") return m;
+                    if (root.tbEdge === "right") return width - tbar.width - m;
+                    if (root.tbEdge === "free") return Math.max(m, Math.min(width - tbar.width - m, root.tbFreeX));
+                    return (width - tbar.width) / 2;
+                }
+                function targetY() {
+                    if (root.tbEdge === "top") return topGap;
+                    if (root.tbEdge === "left" || root.tbEdge === "right") return (height - tbar.height) / 2;
+                    if (root.tbEdge === "free") return Math.max(m, Math.min(height - tbar.height - m, root.tbFreeY));
+                    return height - tbar.height - bottomGap;
+                }
+                AnnoToolbar {
+                    id: tbar
+                    z: 1
+                    anno: root
+                    fam: root.fam
+                    dark: root.dark
+                    tint: root.tint
+                    fillA: 0.40
+                    grip: true
+                    vertical: tbHost.vert
+                    appear: root.tbAppear
+                    readonly property real slide: (1 - Math.min(1, root.tbAppear)) * 22
+                    x: (tbHost.dragging ? tbHost.dragX : tbHost.targetX()) + (root.tbEdge === "left" ? -slide : (root.tbEdge === "right" ? slide : 0))
+                    y: (tbHost.dragging ? tbHost.dragY : tbHost.targetY()) + ((root.tbEdge === "left" || root.tbEdge === "right") ? 0 : slide)
+                    Behavior on x { enabled: !tbHost.dragging; NumberAnimation { duration: 520; easing.type: Easing.OutBack; easing.overshoot: 0.8 } }
+                    Behavior on y { enabled: !tbHost.dragging; NumberAnimation { duration: 520; easing.type: Easing.OutBack; easing.overshoot: 0.8 } }
+                    scale: tbHost.dragging ? 1.03 : 1
+                    onDoneClicked: root.setPen(false)
+                }
+                // sits under the bar: takes the presses the buttons don't (grip, dividers, padding)
+                // and catches presses forwarded from buttons when Super is held
+                MouseArea {
+                    id: dragMa
+                    x: tbar.x; y: tbar.y; width: tbar.width; height: tbar.height
+                    z: 0
+                    preventStealing: true
+                    cursorShape: tbHost.dragging ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+                    property real fx: 0.5
+                    property real fy: 0.5
+                    property real lastX: 0
+                    property real lastY: 0
+                    property real lastT: 0
+                    property real vx: 0
+                    property real vy: 0
+                    function pos(m) { return dragMa.mapToItem(tbHost, m.x, m.y); }
+                    onPressed: m => {
+                        var p = pos(m);
+                        fx = (p.x - tbar.x) / Math.max(1, tbar.width);
+                        fy = (p.y - tbar.y) / Math.max(1, tbar.height);
+                        lastX = p.x; lastY = p.y; lastT = Date.now(); vx = 0; vy = 0;
+                        tbHost.dragX = tbar.x; tbHost.dragY = tbar.y;
+                        tbHost.dragging = true;
+                    }
+                    onPositionChanged: m => {
+                        if (!pressed) return;
+                        var p = pos(m), now = Date.now(), dt = Math.max(1, now - lastT);
+                        vx = vx * 0.6 + ((p.x - lastX) / dt) * 0.4;
+                        vy = vy * 0.6 + ((p.y - lastY) / dt) * 0.4;
+                        lastX = p.x; lastY = p.y; lastT = now;
+                        tbHost.dragX = Math.max(0, Math.min(tbHost.width - tbar.width, p.x - fx * tbar.width));
+                        tbHost.dragY = Math.max(0, Math.min(tbHost.height - tbar.height, p.y - fy * tbar.height));
+                    }
+                    onReleased: {
+                        var W = tbHost.width, H = tbHost.height, w = tbar.width, h = tbar.height;
+                        var x = tbHost.dragX, y = tbHost.dragY;
+                        var spd = Math.max(Math.abs(vx), Math.abs(vy));
+                        var thrown = (Date.now() - lastT < 140) && (spd > 0.40);
+                        var edge = "free";
+                        if (thrown) {
+                            if (Math.abs(vx) > Math.abs(vy)) edge = vx < 0 ? "left" : "right";
+                            else edge = vy < 0 ? "top" : "bottom";
+                        } else {
+                            var best = 1e9, d;
+                            d = x; if (d < 140 && d < best) { best = d; edge = "left"; }
+                            d = W - (x + w); if (d < 140 && d < best) { best = d; edge = "right"; }
+                            d = y; if (d < 110 && d < best) { best = d; edge = "top"; }
+                            d = H - (y + h); if (d < 110 + tbHost.bottomGap && d < best) { best = d; edge = "bottom"; }
+                        }
+                        root.tbFreeX = x; root.tbFreeY = y;
+                        root.tbEdge = edge;
+                        tbHost.dragging = false;
+                    }
+                    onCanceled: tbHost.dragging = false
+                }
+            }
         }
     }
 

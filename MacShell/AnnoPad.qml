@@ -87,14 +87,21 @@ Item {
         }
         pad.pendingKey = a.key;
         pad.anno.commit(a.key, { tool: pad.sTool, color: pad.sColor, w: pad.sW, pts: np, ws: pad.liveWs.slice() });
+        clearT.interval = 400;
         clearT.restart();
     }
     // keep the live stroke on screen until the committed canvas has painted it (no flicker)
-    Timer { id: clearT; interval: 90; onTriggered: pad.dropLive() }
+    Timer { id: clearT; interval: 400; onTriggered: pad.dropLive() }
     function dropLive() { pad.livePts = []; pad.liveWs = []; lc.requestPaint(); }
     Connections {
         target: pad.anno
-        function onInkPainted(k) { if (pad.pendingKey !== "" && k === pad.pendingKey && !pad.pressed) { pad.pendingKey = ""; clearT.interval = 24; clearT.restart(); } }
+        function onInkPainted(k) {
+            if (pad.pendingKey !== "" && k === pad.pendingKey && !pad.pressed) {
+                pad.pendingKey = "";
+                clearT.interval = 24;
+                clearT.restart();
+            }
+        }
     }
 
     Canvas {

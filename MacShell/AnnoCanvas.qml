@@ -18,12 +18,13 @@ Canvas {
         for (var i = 0; i < list.length; i++) D.drawStroke(c, list[i], width, height);
     }
     onPainted: if (anno) anno.inkPainted(key)
-    onWidthChanged: requestPaint()
-    onHeightChanged: requestPaint()
-    onVisibleChanged: if (visible) requestPaint()
-    Component.onCompleted: requestPaint()
+    onWidthChanged: if (width >= 2 && height >= 2) requestPaint()
+    onHeightChanged: if (width >= 2 && height >= 2) requestPaint()
+    onVisibleChanged: if (visible && width >= 2 && height >= 2) requestPaint()
+    onKeyChanged: if (key !== "" && width >= 2 && height >= 2) requestPaint()
+    Component.onCompleted: if (width >= 2 && height >= 2) requestPaint()
     Connections {
         target: cv.anno
-        function onInkChanged(k) { if (k === cv.key) cv.requestPaint(); }
+        function onInkChanged(k) { if (k === cv.key && cv.width >= 2 && cv.height >= 2) cv.requestPaint(); }
     }
 }
