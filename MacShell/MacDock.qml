@@ -4409,8 +4409,12 @@ Scope {
 
     // MacShell's own windows (About This Linux, Settings, Finder, Photos ...) all have the app id "org.quickshell":
     // they show the MacShell logo and name instead of a generic icon
-    readonly property string logoPath: decodeURIComponent(String(Qt.resolvedUrl("assets/macshell-logo.png")).replace(/^file:\/\//, ""))
-    function isShellApp(appId) { return appId === "org.quickshell"; }
+    readonly property string logoPath: String(Qt.resolvedUrl("assets/macshell-logo.png"))
+    function isShellApp(appId) {
+        if (!appId) return false;
+        var a = appId.toLowerCase();
+        return a === "org.quickshell" || a === "macshell" || a === "macshell-settings" || a.indexOf("macshell") >= 0;
+    }
 
     function lookup(appId) {
         if (!appId) return null;
@@ -4441,14 +4445,27 @@ Scope {
 
     function iconSrc(icon) {
         if (!icon) return Quickshell.iconPath("application-x-executable");
+        if (icon.indexOf("://") >= 0) return icon;
         if (icon.charAt(0) === "/") return "file://" + icon;
+        var p = Quickshell.iconPath(icon, true);
+        if (p !== "") return p;
+        p = Quickshell.iconPath(icon, false);
+        if (p !== "") return p;
+        if (icon.toLowerCase().indexOf("macshell") >= 0) return root.logoPath;
         return Quickshell.iconPath(icon, "application-x-executable");
     }
     // icon of a dock cell; the Trash switches to the "full" icon while there is something in it
     function cellIconSrc(it) {
-        if (it && it.special === "trash" && trashFull) {
-            var p = Quickshell.iconPath("user-trash-full", true);
+        if (it && it.special === "trash") {
+            var iconName = root.trashFull ? "user-trash-full" : "user-trash";
+            var p = Quickshell.iconPath(iconName, true);
             if (p !== "") return p;
+            p = Quickshell.iconPath(iconName, false);
+            if (p !== "") return p;
+            return String(Qt.resolvedUrl("assets/" + iconName + ".svg"));
+        }
+        if (it && (it.key === "macshell" || (it.appId && isShellApp(it.appId)))) {
+            return root.logoPath;
         }
         return iconSrc(it ? it.icon : "");
     }
@@ -6002,9 +6019,18 @@ Scope {
                                     smooth: true
                                     mipmap: true
                                     asynchronous: true
+                                    onStatusChanged: {
+                                        if (status === Image.Error && cell.modelData) {
+                                            if (cell.modelData.special === "trash") {
+                                                source = Qt.resolvedUrl("assets/" + (root.trashFull ? "user-trash-full.svg" : "user-trash.svg"));
+                                            } else if (cell.modelData.key === "macshell" || (cell.modelData.appId && root.isShellApp(cell.modelData.appId))) {
+                                                source = root.logoPath;
+                                            }
+                                        }
+                                    }
                                 }
                                 MultiEffect {
-                                    visible: !cell.isSep && !cell.thumbReady
+                                    visible: !cell.isSep && !cell.thumbReady && img.status === Image.Ready
                                     source: img
                                     anchors.fill: img
                                     shadowEnabled: true

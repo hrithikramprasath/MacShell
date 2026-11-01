@@ -1,3 +1,4 @@
+//@ pragma IconTheme Papirus-Dark
 // macbar + macdock in ONE Quickshell process.
 //
 // Install (everything together in one config):

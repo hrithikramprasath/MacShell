@@ -3715,12 +3715,14 @@ Scope {
     }
 
     // the MacShell logo: the icon of MacShell's own windows in the Alt+Tab switcher
-    readonly property string logoPath: decodeURIComponent(String(Qt.resolvedUrl("assets/macshell-logo.png")).replace(/^file:\/\//, ""))
+    readonly property string logoPath: String(Qt.resolvedUrl("assets/macshell-logo.png"))
     // ── applications for Spotlight ──
     function iconSrc(name) {
         var fb = Quickshell.iconPath("application-x-executable", true);
         if (!name) return fb;
+        if (name.indexOf("://") >= 0) return name;
         if (name.indexOf("/") === 0) return "file://" + name;
+        if (name.toLowerCase().indexOf("macshell") >= 0) return root.logoPath;
         var p = Quickshell.iconPath(name, true);
         return p !== "" ? p : fb;
     }
