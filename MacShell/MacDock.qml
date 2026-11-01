@@ -5618,14 +5618,18 @@ Scope {
                             for (var i = 0; i < root.monData.length; i++)
                                 if (root.monData[i].name === win.modelData.name) mon = root.monData[i];
                             if (!mon) return;
-                            var ws = [mon.activeWorkspace ? mon.activeWorkspace.id : -999];
-                            if (mon.specialWorkspace && mon.specialWorkspace.id !== 0) ws.push(mon.specialWorkspace.id);
+                            var wsId = mon.activeWorkspace ? mon.activeWorkspace.id : -999;
+                            var wsName = mon.activeWorkspace ? mon.activeWorkspace.name : "";
                             var zoneTop = bd.height - win.height;
                             var want = {};
                             var cs = root.glassClients;
                             for (var c = 0; c < cs.length; c++) {
                                 var cl = cs[c];
-                                if (!cl.mapped || cl.hidden || cl.monitor !== mon.id || ws.indexOf(cl.workspace.id) < 0) continue;
+                                if (!cl.mapped || cl.hidden || cl.monitor !== mon.id) continue;
+                                if (!cl.workspace || cl.workspace.type === "special") continue;
+                                if (cl.workspace.name && cl.workspace.name.indexOf("special:") === 0) continue;
+                                if (cl.workspace.id !== undefined && cl.workspace.id < 0) continue;
+                                if (cl.workspace.id !== undefined ? (cl.workspace.id !== wsId) : (cl.workspace.name !== wsName)) continue;
                                 var x = cl.at[0] - mon.x, y = cl.at[1] - mon.y, w = cl.size[0], h = cl.size[1];
                                 if (x + w <= 0 || x >= bd.width || y + h <= zoneTop || y >= bd.height) continue;
                                 var z = cl.floating ? 100 - Math.min(cl.focusHistoryID, 90) : 0;   // floating on top, most recently focused highest
@@ -5649,6 +5653,7 @@ Scope {
                             target: root
                             function onGlassClientsChanged() { bd.sync(); bd.burst(); }
                             function onMonDataChanged() { bd.sync(); }
+                            function onStashActiveChanged() { bd.sync(); bd.burst(); }
                         }
                         Component.onCompleted: sync()
                     }

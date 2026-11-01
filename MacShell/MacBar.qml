@@ -244,7 +244,7 @@ Scope {
     // measure a screen rect (logical coords, in a screen scr); inner (optional) = the panel's own rect, left out of the measurement.
     function measureTone(sx, sy, sw, sh) { measureArea(null, Qt.rect(sx, sy, sw, sh), null, true); }
     function measureArea(scr, rect, inner, fresh) {
-        if (!autoContrast) return;
+        if (!autoContrast || root.stashActive) return;
         var x = rect.x, y = rect.y, w = rect.width, h = rect.height;
         if (scr) {                                           // clamp to the screen (grim refuses areas outside the outputs)
             var x1 = Math.max(scr.x, x), y1 = Math.max(scr.y, y), x2 = Math.min(scr.x + scr.width, x + w), y2 = Math.min(scr.y + scr.height, y + h);
@@ -282,7 +282,7 @@ Scope {
     }
     // ── bar text colour: measure what is behind the bar strip (wallpaper + windows + the bar's own glass) ──
     function measureBar() {
-        if (!autoContrast || !barEnabled || barToneProc.running) return;
+        if (!autoContrast || !barEnabled || barToneProc.running || root.stashActive) return;
         var sc = Quickshell.screens && Quickshell.screens.length ? Quickshell.screens[0] : null;
         if (!sc) return;
         barToneProc.command = ["sh", toneScript, "0.25", String(Math.round(sc.x)), String(Math.round(sc.y)), String(Math.max(8, Math.round(sc.width))), String(Math.max(8, Math.round(barH)))];
@@ -5546,17 +5546,18 @@ Scope {
                     x: 0; y: 0
                     width: win.modelData.width; height: win.modelData.height
                     opacity: 0                      // only ever captured by the glass, never drawn itself
-                    captureSource: root.liquidActive && !root.captureQuiet && !glassBackdrop.item ? win.modelData : null     // fallback only
+                    captureSource: root.liquidActive && !root.captureQuiet && !root.stashActive && !glassBackdrop.item ? win.modelData : null     // fallback only
                     live: false
                     paintCursor: false
                     property real takenAt: 0
-                    function grab() { if (captureSource && typeof captureFrame === "function") { captureFrame(); takenAt = Date.now(); } }
+                    function grab() { if (captureSource && !root.stashActive && typeof captureFrame === "function") { captureFrame(); takenAt = Date.now(); } }
                 }
                 property bool snapFresh: false
                 // a moment after a popover starts opening (its rect is known), measure what's behind it
                 Timer {
                     id: toneT; interval: 140
                     onTriggered: {
+                        if (root.stashActive) return;
                         var r = ui.glassRect;
                         if (r.width <= 0) return;
                         root.measureTone(win.modelData.x + r.x + 64, win.modelData.y + r.y + 64, r.width - 128, r.height - 128);
@@ -5569,8 +5570,8 @@ Scope {
                     function onBarRelayout() {
                         screenSnap.takenAt = 0;
                         ui.snapFresh = false;
-                        if (ui.pop !== "" && ui.pop !== "spot") toneT.restart();
-                        else if (barHover.hovered && ui.pop === "") screenSnap.grab();
+                        if (ui.pop !== "" && ui.pop !== "spot" && !root.stashActive) toneT.restart();
+                        else if (barHover.hovered && ui.pop === "" && !root.stashActive) screenSnap.grab();
                     }
                 }
                 // The live backdrop (wallpaper + desktop widgets + live window captures) is always the source, so a window dragged
@@ -5578,10 +5579,10 @@ Scope {
                 readonly property Item glassSrc: glassBackdrop.item ? glassBackdrop.item : ((snapFresh && screenSnap.hasContent) ? screenSnap : null)
                 HoverHandler {
                     id: barHover
-                    onHoveredChanged: if (hovered && ui.pop === "") screenSnap.grab()
+                    onHoveredChanged: if (hovered && ui.pop === "" && !root.stashActive) screenSnap.grab()
                 }
                 // refresh while the pointer rests on the bar with nothing open; a snapshot is "fresh" for 3 s
-                Timer { interval: 600; repeat: true; running: barHover.hovered && ui.pop === ""; onTriggered: screenSnap.grab() }
+                Timer { interval: 600; repeat: true; running: barHover.hovered && ui.pop === "" && !root.stashActive; onTriggered: screenSnap.grab() }
                 Timer { interval: 250; repeat: true; running: root.liquidActive; onTriggered: ui.snapFresh = (Date.now() - screenSnap.takenAt) < 3000 || (ui.pop !== "" && ui.snapFresh) }
 
                 // keeps the (otherwise unseen) backdrop rendering so its window captures stay valid; draws one 1%-opaque pixel
@@ -5862,14 +5863,18 @@ Scope {
                             for (i = 0; i < root.monData.length; i++)
                                 if (root.monData[i].name === win.modelData.name) mon = root.monData[i];
                             if (!mon) return;
-                            var ws = [mon.activeWorkspace ? mon.activeWorkspace.id : -999];
-                            if (mon.specialWorkspace && mon.specialWorkspace.id !== 0) ws.push(mon.specialWorkspace.id);
+                            var wsId = mon.activeWorkspace ? mon.activeWorkspace.id : -999;
+                            var wsName = mon.activeWorkspace ? mon.activeWorkspace.name : "";
                             var zoneBottom = bd.height;
                             var want = {};
                             var cs = root.glassClients;
                             for (var c = 0; c < cs.length; c++) {
                                 var cl = cs[c];
-                                if (!cl.mapped || cl.hidden || cl.monitor !== mon.id || ws.indexOf(cl.workspace.id) < 0) continue;
+                                if (!cl.mapped || cl.hidden || cl.monitor !== mon.id) continue;
+                                if (!cl.workspace || cl.workspace.type === "special") continue;
+                                if (cl.workspace.name && cl.workspace.name.indexOf("special:") === 0) continue;
+                                if (cl.workspace.id !== undefined && cl.workspace.id < 0) continue;
+                                if (cl.workspace.id !== undefined ? (cl.workspace.id !== wsId) : (cl.workspace.name !== wsName)) continue;
                                 var x = cl.at[0] - mon.x, y = cl.at[1] - mon.y, w = cl.size[0], h = cl.size[1];
                                 if (x + w <= 0 || x >= bd.width || y + h <= 0 || y >= zoneBottom) continue;
                                 var z = cl.floating ? 100 - Math.min(cl.focusHistoryID, 90) : 0;
@@ -5892,6 +5897,7 @@ Scope {
                             target: root
                             function onGlassClientsChanged() { bd.sync(); if (bd.hostShown) bd.burst(); }
                             function onMonDataChanged() { bd.sync(); }
+                            function onStashActiveChanged() { bd.sync(); if (bd.hostShown) bd.burst(); }
                         }
                         Component.onCompleted: sync()
                     }
