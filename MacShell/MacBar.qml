@@ -4012,7 +4012,7 @@ Scope {
                     m.push(mchk("Floating", "", floating, disp('hl.dsp.window.float({ action = "toggle" })')));
                     m.push(dis(mchk("Pin to All Workspaces", "", aw && aw.pinned === true, disp('hl.dsp.window.pin({ action = "toggle" })')), !floating));
                     m.push(dis(mi("Center Window", "", disp('hl.dsp.window.center()')), !floating));
-                    m.push(dis(mi("Toggle Split Direction", "", disp('hl.dsp.layout("togglesplit")')), floating));
+                    m.push(dis(mi("Toggle Split Direction", "", disp('local cur = tostring(hl.get_config("general:layout") or ""):gsub("%s+", ""); if cur == "scrolling" then hl.dispatch(hl.dsp.layout("promote")) else hl.dispatch(hl.dsp.layout("togglesplit")) end')), floating));
                     if (!term) {
                         m.push(msep());
                         m.push(mi("Actual Size", "Ctrl+0", keys(["ctrl"], "0")));
