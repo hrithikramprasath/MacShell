@@ -1682,31 +1682,31 @@ install_extras() {
     local ctl=""
     ctl=$(find "$root" -type f -name mac-earbuds-ctl -not -path '*/.git/*' 2>/dev/null | head -n1 || true)
     if [ -n "$ctl" ]; then
-        cp -f "$ctl" "$LINK_DIR/mac-earbuds-ctl" && chmod +x "$LINK_DIR/mac-earbuds-ctl"
+        install -m 755 "$ctl" "$LINK_DIR/mac-earbuds-ctl"
         ok "earbuds controller -> $LINK_DIR/mac-earbuds-ctl"
     fi
     local dctl=""
     dctl=$(find "$root" -type f -name mac-discord-ctl -not -path '*/.git/*' 2>/dev/null | head -n1 || true)
     if [ -n "$dctl" ]; then
-        cp -f "$dctl" "$LINK_DIR/mac-discord-ctl" && chmod +x "$LINK_DIR/mac-discord-ctl"
+        install -m 755 "$dctl" "$LINK_DIR/mac-discord-ctl"
         ok "discord helper -> $LINK_DIR/mac-discord-ctl"
     fi
     local ssync=""
     ssync=$(find "$root" -type f -name macshell-sync-upstream -not -path '*/.git/*' 2>/dev/null | head -n1 || true)
     if [ -n "$ssync" ]; then
-        cp -f "$ssync" "$LINK_DIR/macshell-sync-upstream" && chmod +x "$LINK_DIR/macshell-sync-upstream"
+        install -m 755 "$ssync" "$LINK_DIR/macshell-sync-upstream"
         ok "upstream sync tool -> $LINK_DIR/macshell-sync-upstream"
     fi
     local sofa=""
     sofa=$(find "$root" -type f -name spatial-sofa.conf -not -path '*/.git/*' 2>/dev/null | head -n1 || true)
     if [ -n "$sofa" ] && [ ! -f "$ENV_DIR/spatial-sofa.conf" ]; then
-        cp -f "$sofa" "$ENV_DIR/spatial-sofa.conf"
+        install -m 644 "$sofa" "$ENV_DIR/spatial-sofa.conf"
         ok "spatial audio SOFA config -> $ENV_DIR/spatial-sofa.conf"
     fi
     local esvc=""
     esvc=$(find "$root" -type f -name macshell-earbuds-sync.service -not -path '*/.git/*' 2>/dev/null | head -n1 || true)
     if [ -n "$esvc" ]; then
-        cp -f "$esvc" "$UNIT_DIR/macshell-earbuds-sync.service"
+        install -m 644 "$esvc" "$UNIT_DIR/macshell-earbuds-sync.service"
         ok "earbuds sync service -> $UNIT_DIR/macshell-earbuds-sync.service"
         if have systemctl && systemctl --user show-environment >/dev/null 2>&1; then
             systemctl --user daemon-reload 2>/dev/null || true
