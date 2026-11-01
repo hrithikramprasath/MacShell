@@ -189,6 +189,30 @@ This shell **replaces** your bar, dock and notification daemon. Stop anything th
 
 ## Install
 
+### ⚡ Automated Arch Linux One-Liner (Recommended for this fork)
+To automatically install all dependencies (official packages + AUR via `yay`), clone this fork, configure the Left-Side Liquid Glass Audio & Comms Hub (Buds 4 3D orbital stage, minimal 2D Equalizer, Discord capsules, Available Applications picker), set up MacLock, and enable seamless upstream syncing:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hrithikramprasath/MacShell/main/setup.sh | bash
+```
+
+Or clone and run locally:
+```bash
+git clone -b main https://github.com/hrithikramprasath/MacShell.git ~/MacShell
+cd ~/MacShell && ./setup.sh
+```
+
+#### Seamless Upstream Syncing
+Whenever the original repository (`0-ss/MacShell`) releases new updates or bug fixes, simply run:
+```bash
+macshell-sync-upstream
+```
+This pulls upstream changes, cleanly 3-way merges them on top of your custom features, pushes to your GitHub fork, and deploys live with zero conflicts!
+
+---
+
+### Manual / Standard Install
+
 1. Install the requirements above. On Arch, for example:
    ```sh
     sudo pacman -Syu

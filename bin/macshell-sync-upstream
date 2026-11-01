@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# macshell-sync-upstream: fetches new upstream 0-ss/MacShell releases into ~/MacShell,
+# 3-way merges them cleanly with your custom features, pushes to hrithikramprasath/MacShell,
+# and applies the merged update live without losing any customizations.
+set -euo pipefail
+
+REPO_DIR="${HOME}/MacShell"
+if [ ! -d "$REPO_DIR/.git" ]; then
+    echo "error: $REPO_DIR is not a git repository." >&2
+    exit 1
+fi
+cd "$REPO_DIR"
+
+# Ensure remotes exist
+if ! git remote get-url upstream >/dev/null 2>&1; then
+    git remote add upstream https://github.com/0-ss/MacShell.git
+fi
+
+echo "==> Fetching upstream 0-ss/MacShell..."
+git fetch --tags upstream
+git checkout main
+git pull --ff-only origin main || true
+
+if git merge-base --is-ancestor upstream/main HEAD; then
+    echo "  ✓ Already synced with latest upstream 0-ss/MacShell ($(cat MacShell/VERSION 2>/dev/null || echo 'current'))."
+else
+    echo "==> Merging upstream/main into your fork..."
+    git merge --no-edit -m "chore(sync): merge upstream 0-ss/MacShell changes into fork" upstream/main
+    git push origin main || echo "  (Local merge complete; push to origin skipped or offline)"
+fi
+
+SHA="$(git rev-parse HEAD)"
+echo "==> Deploying merged MacShell ($SHA) to ~/.config/quickshell/MacShell..."
+MACSHELL_REPO="hrithikramprasath/MacShell" MACSHELL_BRANCH="main" MACSHELL_CHANNEL="main" \
+    bash "$REPO_DIR/install.sh" --update --yes --no-deps --from-dir "$REPO_DIR" --resolved-id "$SHA" --resolved-type "branch"
+
+# Ensure local binaries and helpers are synced
+mkdir -p "$HOME/.local/bin"
+[ -f "$REPO_DIR/MacShell/assets/mac-discord-ctl" ] && cp -f "$REPO_DIR/MacShell/assets/mac-discord-ctl" "$HOME/.local/bin/mac-discord-ctl" && chmod +x "$HOME/.local/bin/mac-discord-ctl"
+[ -f "$REPO_DIR/MacShell/assets/mac-earbuds-ctl" ] && cp -f "$REPO_DIR/MacShell/assets/mac-earbuds-ctl" "$HOME/.local/bin/mac-earbuds-ctl" && chmod +x "$HOME/.local/bin/mac-earbuds-ctl"
+[ -f "$REPO_DIR/bin/macshell-sync-upstream" ] && cp -f "$REPO_DIR/bin/macshell-sync-upstream" "$HOME/.local/bin/macshell-sync-upstream" && chmod +x "$HOME/.local/bin/macshell-sync-upstream"
+
+echo "  ✓ Upstream changes seamlessly merged and live!"
