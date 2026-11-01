@@ -431,13 +431,13 @@ Scope {
                 z: 10
                 visible: root.uiScreen === ink.modelData && root.tbAppear > 0.001
                 property bool dragging: false
+                property bool sideVertical: false
                 property real dragX: 0
                 property real dragY: 0
                 readonly property real m: 18
                 readonly property real bottomGap: 104
                 readonly property real topGap: 56
-                readonly property bool nearSide: dragging && (dragX < 140 || dragX + tbar.width > width - 140)
-                readonly property bool vert: dragging ? nearSide : (root.tbEdge === "left" || root.tbEdge === "right")
+                readonly property bool vert: dragging ? sideVertical : (root.tbEdge === "left" || root.tbEdge === "right")
                 function targetX() {
                     if (root.tbEdge === "left") return m;
                     if (root.tbEdge === "right") return width - tbar.width - m;
@@ -487,6 +487,7 @@ Scope {
                     function pos(m) { return dragMa.mapToItem(tbHost, m.x, m.y); }
                     onPressed: m => {
                         var p = pos(m);
+                        tbHost.sideVertical = (root.tbEdge === "left" || root.tbEdge === "right");
                         fx = (p.x - tbar.x) / Math.max(1, tbar.width);
                         fy = (p.y - tbar.y) / Math.max(1, tbar.height);
                         lastX = p.x; lastY = p.y; lastT = Date.now(); vx = 0; vy = 0;
@@ -499,6 +500,23 @@ Scope {
                         vx = vx * 0.6 + ((p.x - lastX) / dt) * 0.4;
                         vy = vy * 0.6 + ((p.y - lastY) / dt) * 0.4;
                         lastX = p.x; lastY = p.y; lastT = now;
+
+                        var W = tbHost.width;
+                        var wasVert = tbHost.sideVertical;
+                        if (!wasVert) {
+                            if (p.x < 150 || p.x > W - 150) {
+                                tbHost.sideVertical = true;
+                                fx = 0.5;
+                                fy = Math.max(0.1, Math.min(0.9, (p.y - tbHost.dragY) / Math.max(1, tbar.height)));
+                            }
+                        } else {
+                            if (p.x > 260 && p.x < W - 260) {
+                                tbHost.sideVertical = false;
+                                fy = 0.5;
+                                fx = Math.max(0.1, Math.min(0.9, (p.x - tbHost.dragX) / Math.max(1, tbar.width)));
+                            }
+                        }
+
                         tbHost.dragX = Math.max(0, Math.min(tbHost.width - tbar.width, p.x - fx * tbar.width));
                         tbHost.dragY = Math.max(0, Math.min(tbHost.height - tbar.height, p.y - fy * tbar.height));
                     }
@@ -513,10 +531,10 @@ Scope {
                             else edge = vy < 0 ? "top" : "bottom";
                         } else {
                             var best = 1e9, d;
-                            d = x; if (d < 140 && d < best) { best = d; edge = "left"; }
-                            d = W - (x + w); if (d < 140 && d < best) { best = d; edge = "right"; }
-                            d = y; if (d < 110 && d < best) { best = d; edge = "top"; }
-                            d = H - (y + h); if (d < 110 + tbHost.bottomGap && d < best) { best = d; edge = "bottom"; }
+                            d = x; if ((tbHost.sideVertical || d < 140) && d < best) { best = d; edge = "left"; }
+                            d = W - (x + w); if ((tbHost.sideVertical || d < 140) && d < best) { best = d; edge = "right"; }
+                            d = y; if (!tbHost.sideVertical && d < 110 && d < best) { best = d; edge = "top"; }
+                            d = H - (y + h); if (!tbHost.sideVertical && d < 110 + tbHost.bottomGap && d < best) { best = d; edge = "bottom"; }
                         }
                         root.tbFreeX = x; root.tbFreeY = y;
                         root.tbEdge = edge;

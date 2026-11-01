@@ -13,6 +13,13 @@ AnnoGlass {
     signal doneClicked()
     signal gridClicked()
 
+    dynamicShadow: true
+    verticalShadow: tb.v
+    hShadowW: row.width + 30
+    hShadowH: 60
+    vShadowW: 62
+    vShadowH: row.height + 30
+
     readonly property color fg: dark ? "#F5F5F7" : "#1D1D1F"
     readonly property var tools: ["pen", "highlighter", "eraser"]
     readonly property bool v: vertical
