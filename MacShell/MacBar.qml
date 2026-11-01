@@ -1218,6 +1218,7 @@ Scope {
         property color borderTint: "#8A9AB5"   // wallpaper's dominant colour, for the MenuBorder drawn over each slab
         property real borderAmount: 1          // strength of that MenuBorder
         property bool whiteEdge: true       // the light inner ring of the non-liquid pane (off for Spotlight: dark outline only)
+        property bool menuDepth: false      // rich File-menu dark mode depth gradient + precision double edge
         property real grain: 0.03
         property bool debug: false
         signal failed()
@@ -1299,11 +1300,11 @@ Scope {
             liquid: root.liquidActive
             shaderUrl: root.glassShaderUrl
             dark: root.effDark
-            tint: root.glassOpacity
-            strength: root.glassLiquid
+            tint: root.panelDarkMode ? Math.max(root.glassOpacity, 0.55) : root.glassOpacity
+            strength: 0.55 * root.glassLiquid
             rim: root.glassRim * 0.25
             rimTint: 1
-            ringW: 0
+            ringW: 1.4
             borderTint: root.menuBorderColor
             borderAmount: 1
             whiteEdge: false
@@ -1314,7 +1315,7 @@ Scope {
         }
     }
 
-    // Unified Liquid Glass Backdrop for popovers matching native MacShell styling
+    // Unified Liquid Glass Backdrop for popovers matching native MacShell styling (exact File menu depth & edge)
     component PopGlassBackdrop: Item {
         id: pgbd
         required property var gx
@@ -1336,7 +1337,18 @@ Scope {
             flatInner: 1
         }
 
-        // Specular dynamic MenuBorder
+        // Signature dark mode depth tint matching top-left File menu
+        Rectangle {
+            visible: pgbd.dark
+            anchors.fill: parent
+            radius: pgbd.cornerR
+            gradient: Gradient {
+                GradientStop { position: 0.0; color: Qt.rgba(56 / 255, 56 / 255, 62 / 255, 0.34) }
+                GradientStop { position: 1.0; color: Qt.rgba(30 / 255, 30 / 255, 34 / 255, 0.38) }
+            }
+        }
+
+        // Specular dynamic MenuBorder with outer dark hairline + inner glowing accent
         MenuBorder {
             z: 2
             anchors.fill: parent
@@ -1482,7 +1494,36 @@ Scope {
             color: (tile.clickable && tma.containsMouse) ? (tile.t.dark ? Qt.rgba(1, 1, 1, 0.025) : Qt.rgba(1, 1, 1, 0.07)) : Qt.rgba(1, 1, 1, 0)
             Behavior on color { ColorAnimation { duration: 320; easing.type: Easing.OutCubic } }
         }
-        CornerBorder { z: 2; anchors.fill: parent; cornerR: tile.radius; dark: tile.gx.dark; tint: tile.gx.borderTint; amount: tile.gx.borderAmount; lineW: 0.8 }
+        // dark mode depth gradient for tiles with menuDepth matching File menu
+        Rectangle {
+            anchors.fill: parent
+            radius: tile.radius
+            visible: tile.gx.menuDepth && tile.t.dark && !tile.whole
+            gradient: Gradient {
+                GradientStop { position: 0.0; color: Qt.rgba(56 / 255, 56 / 255, 62 / 255, 0.34) }
+                GradientStop { position: 1.0; color: Qt.rgba(30 / 255, 30 / 255, 34 / 255, 0.38) }
+            }
+        }
+        // MenuBorder for tiles with menuDepth matching File menu
+        MenuBorder {
+            z: 2
+            anchors.fill: parent
+            cornerR: tile.radius
+            dark: tile.t.dark
+            tint: root.menuBorderColor
+            amount: 1
+            visible: tile.gx.menuDepth
+        }
+        CornerBorder {
+            z: 2
+            anchors.fill: parent
+            cornerR: tile.radius
+            dark: tile.gx.dark
+            tint: tile.gx.borderTint
+            amount: tile.gx.borderAmount
+            lineW: 0.8
+            visible: !tile.gx.menuDepth
+        }
         MouseArea { id: tma; anchors.fill: parent; enabled: tile.clickable; hoverEnabled: true; onClicked: tile.clicked() }
     }
 
@@ -6574,12 +6615,13 @@ Scope {
                         frame: ui
                         liquid: root.liquidActive
                         shaderUrl: root.glassShaderUrl
-                        dark: root.ccDark
-                        tint: root.glassOpacity
-                        strength: root.glassLiquid
-                        rim: root.glassRim * 0.25
+                        dark: root.panelDarkMode
+                        tint: root.panelDarkMode ? Math.max(root.glassOpacity, 0.55) : root.glassOpacity
+                        strength: 0.55 * root.glassLiquid
+                        rim: root.glassRim
                         rimTint: 1
-                        ringW: 0
+                        ringW: 1.4
+                        menuDepth: true
                         borderTint: root.menuBorderColor
                         borderAmount: 1
                         whiteEdge: false
@@ -6812,15 +6854,15 @@ Scope {
                                                 ctx.clip();
 
                                                 // Subtle deep optical core for high-contrast waveform clarity
-                                                ctx.fillStyle = Qt.rgba(c1.r * 0.25, c1.g * 0.25, c1.b * 0.30, ccPal.dark ? 0.42 : 0.26);
+                                                ctx.fillStyle = Qt.rgba(c1.r * 0.25, c1.g * 0.25, c1.b * 0.30, ccPal.dark ? 0.22 : 0.14);
                                                 ctx.fillRect(0, 0, width, height);
 
                                                 // Primary orbiting liquid aurora lobe
                                                 var l1x = cx + Math.cos(ph * 1.35) * 6.0;
                                                 var l1y = cy + Math.sin(ph * 1.35) * 6.0;
                                                 var g1 = ctx.createRadialGradient(l1x, l1y, 1.0, l1x, l1y, 16.5);
-                                                g1.addColorStop(0.0, Qt.rgba(c1.r, c1.g, c1.b, 0.72));
-                                                g1.addColorStop(0.65, Qt.rgba(c1.r, c1.g, c1.b, 0.24));
+                                                g1.addColorStop(0.0, Qt.rgba(c1.r, c1.g, c1.b, 0.55));
+                                                g1.addColorStop(0.65, Qt.rgba(c1.r, c1.g, c1.b, 0.16));
                                                 g1.addColorStop(1.0, Qt.rgba(c1.r, c1.g, c1.b, 0.0));
                                                 ctx.fillStyle = g1;
                                                 ctx.fillRect(0, 0, width, height);
@@ -6829,8 +6871,8 @@ Scope {
                                                 var l2x = cx + Math.cos(-ph * 1.1 + 2.2) * 6.2;
                                                 var l2y = cy + Math.sin(-ph * 1.1 + 2.2) * 6.2;
                                                 var g2 = ctx.createRadialGradient(l2x, l2y, 1.0, l2x, l2y, 15.5);
-                                                g2.addColorStop(0.0, Qt.rgba(c2.r, c2.g, c2.b, 0.62));
-                                                g2.addColorStop(0.65, Qt.rgba(c2.r, c2.g, c2.b, 0.18));
+                                                g2.addColorStop(0.0, Qt.rgba(c2.r, c2.g, c2.b, 0.48));
+                                                g2.addColorStop(0.65, Qt.rgba(c2.r, c2.g, c2.b, 0.12));
                                                 g2.addColorStop(1.0, Qt.rgba(c2.r, c2.g, c2.b, 0.0));
                                                 ctx.fillStyle = g2;
                                                 ctx.fillRect(0, 0, width, height);
@@ -6840,7 +6882,7 @@ Scope {
                                                     var l3x = cx + Math.cos(ph * 0.95 + 4.1) * 5.8;
                                                     var l3y = cy + Math.sin(ph * 0.95 + 4.1) * 5.8;
                                                     var g3 = ctx.createRadialGradient(l3x, l3y, 0.5, l3x, l3y, 13.5);
-                                                    g3.addColorStop(0.0, Qt.rgba(0.22, 0.74, 0.97, 0.50));
+                                                    g3.addColorStop(0.0, Qt.rgba(0.22, 0.74, 0.97, 0.38));
                                                     g3.addColorStop(1.0, Qt.rgba(0.22, 0.74, 0.97, 0.0));
                                                     ctx.fillStyle = g3;
                                                     ctx.fillRect(0, 0, width, height);
@@ -7053,23 +7095,24 @@ Scope {
                                             // 0. Subtle specular top & bottom chamber horizon hairlines (100% pure glass transparency preserved)
                                             var hLine = ctx.createLinearGradient(16, 0, width - 16, 0);
                                             hLine.addColorStop(0.0, Qt.rgba(1, 1, 1, 0.0));
-                                            hLine.addColorStop(0.5, Qt.rgba(1, 1, 1, ccPal.dark ? 0.11 : 0.20));
+                                            hLine.addColorStop(0.5, Qt.rgba(1, 1, 1, ccPal.dark ? 0.07 : 0.14));
                                             hLine.addColorStop(1.0, Qt.rgba(1, 1, 1, 0.0));
                                             ctx.fillStyle = hLine;
                                             ctx.fillRect(16, 1, width - 32, 0.75);
                                             ctx.fillRect(16, height - 2, width - 32, 0.75);
 
-                                            // 1. Dual-tone radial liquid caustic aura pool beneath the center stage
-                                            var grad = ctx.createRadialGradient(cx, cy, 4, cx, cy, 140);
-                                            grad.addColorStop(0.0, Qt.rgba(col.r, col.g, col.b, 0.30));
-                                            grad.addColorStop(0.45, Qt.rgba(col2.r, col2.g, col2.b, 0.14));
+                                            // 1. Whisper-soft flowing liquid caustic mist (pure glass clarity preserved, zero chunky disc)
+                                            var grad = ctx.createRadialGradient(cx, cy, 2, cx, cy, 115);
+                                            grad.addColorStop(0.0, Qt.rgba(col.r, col.g, col.b, 0.08));
+                                            grad.addColorStop(0.40, Qt.rgba(col2.r, col2.g, col2.b, 0.035));
+                                            grad.addColorStop(0.75, Qt.rgba(col.r, col.g, col.b, 0.010));
                                             grad.addColorStop(1.0, Qt.rgba(col.r, col.g, col.b, 0.0));
                                             ctx.fillStyle = grad;
                                             ctx.fillRect(0, 0, width, height);
 
-                                            // 2. Three 3D perspective-shaded undulating water-wave contours (crisper in foreground, softer on far horizon)
+                                            // 2. Three 3D perspective-shaded undulating water-wave contours (silky ripples, flowing & airy)
                                             var bases = [38, 69, 102];
-                                            var alphas = [0.36, 0.24, 0.14];
+                                            var alphas = [0.14, 0.08, 0.03];
                                             for (var rIdx = 0; rIdx < 3; rIdx++) {
                                                 var rb = bases[rIdx];
                                                 var prevX = 0, prevY = 0;
@@ -7090,7 +7133,7 @@ Scope {
                                                         ctx.beginPath();
                                                         ctx.moveTo(prevX, prevY);
                                                         ctx.lineTo(px, py);
-                                                        ctx.lineWidth = (rIdx === 0 ? 1.45 : 1.05) * (0.72 + 0.42 * depthF);
+                                                        ctx.lineWidth = (rIdx === 0 ? 0.85 : 0.60) * (0.72 + 0.42 * depthF);
                                                         ctx.strokeStyle = Qt.rgba(col.r, col.g, col.b, alphas[rIdx] * depthF);
                                                         ctx.stroke();
                                                     }
@@ -7115,25 +7158,25 @@ Scope {
 
                                                 // Outer soft aurora silk ribbon glow
                                                 var tGrad = ctx.createLinearGradient(cCenterX, cCenterY, bCenterX, bCenterY);
-                                                tGrad.addColorStop(0.0, Qt.rgba(col.r, col.g, col.b, 0.24));
-                                                tGrad.addColorStop(0.5, Qt.rgba(col2.r, col2.g, col2.b, 0.20));
-                                                tGrad.addColorStop(1.0, Qt.rgba(col.r, col.g, col.b, 0.24));
+                                                tGrad.addColorStop(0.0, Qt.rgba(col.r, col.g, col.b, 0.12));
+                                                tGrad.addColorStop(0.5, Qt.rgba(col2.r, col2.g, col2.b, 0.08));
+                                                tGrad.addColorStop(1.0, Qt.rgba(col.r, col.g, col.b, 0.12));
                                                 ctx.beginPath();
                                                 ctx.moveTo(cCenterX, cCenterY);
                                                 ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, bCenterX, bCenterY);
-                                                ctx.lineWidth = 5.4;
+                                                ctx.lineWidth = 2.2;
                                                 ctx.strokeStyle = tGrad;
                                                 ctx.stroke();
 
                                                 // Inner razor-crisp iridescent optical filament
                                                 var fGrad = ctx.createLinearGradient(cCenterX, cCenterY, bCenterX, bCenterY);
-                                                fGrad.addColorStop(0.0, Qt.rgba(col.r, col.g, col.b, 0.55));
-                                                fGrad.addColorStop(0.5, Qt.rgba(1, 1, 1, 0.62));
-                                                fGrad.addColorStop(1.0, Qt.rgba(col2.r, col2.g, col2.b, 0.55));
+                                                fGrad.addColorStop(0.0, Qt.rgba(col.r, col.g, col.b, 0.35));
+                                                fGrad.addColorStop(0.5, Qt.rgba(1, 1, 1, 0.50));
+                                                fGrad.addColorStop(1.0, Qt.rgba(col2.r, col2.g, col2.b, 0.35));
                                                 ctx.beginPath();
                                                 ctx.moveTo(cCenterX, cCenterY);
                                                 ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, bCenterX, bCenterY);
-                                                ctx.lineWidth = 1.25;
+                                                ctx.lineWidth = 0.75;
                                                 ctx.strokeStyle = fGrad;
                                                 ctx.stroke();
 
@@ -7146,12 +7189,12 @@ Scope {
                                                     var qy = u*u*u*cCenterY + 3*u*u*rawP*cp1y + 3*u*rawP*rawP*cp2y + rawP*rawP*rawP*bCenterY;
                                                     var edgeFade = Math.sin(rawP * Math.PI);
                                                     ctx.beginPath();
-                                                    ctx.arc(qx, qy, 3.8, 0, Math.PI * 2);
-                                                    ctx.fillStyle = Qt.rgba(col.r, col.g, col.b, 0.30 * edgeFade);
+                                                    ctx.arc(qx, qy, 2.2, 0, Math.PI * 2);
+                                                    ctx.fillStyle = Qt.rgba(col.r, col.g, col.b, 0.15 * edgeFade);
                                                     ctx.fill();
                                                     ctx.beginPath();
-                                                    ctx.arc(qx, qy, 1.55, 0, Math.PI * 2);
-                                                    ctx.fillStyle = Qt.rgba(1, 1, 1, 0.88 * edgeFade);
+                                                    ctx.arc(qx, qy, 1.1, 0, Math.PI * 2);
+                                                    ctx.fillStyle = Qt.rgba(1, 1, 1, 0.75 * edgeFade);
                                                     ctx.fill();
                                                 }
                                             }
@@ -7170,8 +7213,8 @@ Scope {
                                                     else ctx.lineTo(wx, wy);
                                                 }
                                                 ctx.closePath();
-                                                ctx.lineWidth = 2.2 * (1 - stT * 0.65);
-                                                ctx.strokeStyle = Qt.rgba(1, 1, 1, spAlpha * 0.68);
+                                                ctx.lineWidth = 1.4 * (1 - stT * 0.65);
+                                                ctx.strokeStyle = Qt.rgba(1, 1, 1, spAlpha * 0.40);
                                                 ctx.stroke();
                                             }
 
@@ -7186,8 +7229,8 @@ Scope {
                                                         ctx.beginPath();
                                                         ctx.moveTo(cx + Math.cos(ta0) * orbRx, cy + Math.sin(ta0) * orbRy);
                                                         ctx.lineTo(cx + Math.cos(ta1) * orbRx, cy + Math.sin(ta1) * orbRy);
-                                                        ctx.lineWidth = 1.6 * (1 - seg / 9);
-                                                        ctx.strokeStyle = Qt.rgba(col.r, col.g, col.b, 0.30 * (1 - seg / 9));
+                                                        ctx.lineWidth = 1.0 * (1 - seg / 9);
+                                                        ctx.strokeStyle = Qt.rgba(col.r, col.g, col.b, 0.16 * (1 - seg / 9));
                                                         ctx.stroke();
                                                     }
                                                 }
@@ -7195,12 +7238,12 @@ Scope {
                                                     var hx = cx + Math.cos(headA) * orbRx;
                                                     var hy = cy + Math.sin(headA) * orbRy;
                                                     ctx.beginPath();
-                                                    ctx.arc(hx, hy, 4.2, 0, Math.PI * 2);
-                                                    ctx.fillStyle = Qt.rgba(col.r, col.g, col.b, 0.18);
+                                                    ctx.arc(hx, hy, 2.8, 0, Math.PI * 2);
+                                                    ctx.fillStyle = Qt.rgba(col.r, col.g, col.b, 0.10);
                                                     ctx.fill();
                                                     ctx.beginPath();
-                                                    ctx.arc(hx, hy, 1.7, 0, Math.PI * 2);
-                                                    ctx.fillStyle = Qt.rgba(1, 1, 1, 0.72);
+                                                    ctx.arc(hx, hy, 1.2, 0, Math.PI * 2);
+                                                    ctx.fillStyle = Qt.rgba(1, 1, 1, 0.60);
                                                     ctx.fill();
                                                 }
                                             }
@@ -7285,8 +7328,8 @@ Scope {
                                                     sc.translate(w / 2, h / 2);
                                                     sc.scale(1.0 / prox, 0.34);
                                                     var sg = sc.createRadialGradient(0, 0, 1, 0, 0, w * 0.44);
-                                                    sg.addColorStop(0.0, Qt.rgba(0, 0, 0, (ccPal.dark ? 0.56 : 0.26) * prox));
-                                                    sg.addColorStop(0.55, Qt.rgba(cCol.r, cCol.g, cCol.b, 0.18 * prox));
+                                                    sg.addColorStop(0.0, Qt.rgba(0, 0, 0, (ccPal.dark ? 0.18 : 0.10) * prox));
+                                                    sg.addColorStop(0.55, Qt.rgba(cCol.r, cCol.g, cCol.b, 0.08 * prox));
                                                     sg.addColorStop(1.0, Qt.rgba(0, 0, 0, 0.0));
                                                     sc.fillStyle = sg;
                                                     sc.beginPath();
@@ -7466,8 +7509,8 @@ Scope {
                                                         ctx.beginPath();
                                                         ctx.moveTo(cx + Math.cos(ta0) * orbRx, cy + Math.sin(ta0) * orbRy);
                                                         ctx.lineTo(cx + Math.cos(ta1) * orbRx, cy + Math.sin(ta1) * orbRy);
-                                                        ctx.lineWidth = (2.3 * (1 - seg / 9)) * (0.75 + 0.35 * nearBoost);
-                                                        ctx.strokeStyle = Qt.rgba(col.r, col.g, col.b, 0.52 * (1 - seg / 9) * (0.65 + 0.35 * nearBoost));
+                                                        ctx.lineWidth = (1.5 * (1 - seg / 9)) * (0.75 + 0.35 * nearBoost);
+                                                        ctx.strokeStyle = Qt.rgba(col.r, col.g, col.b, 0.28 * (1 - seg / 9) * (0.65 + 0.35 * nearBoost));
                                                         ctx.stroke();
                                                     }
                                                 }
@@ -7475,12 +7518,12 @@ Scope {
                                                     var hx = cx + Math.cos(headA) * orbRx;
                                                     var hy = cy + Math.sin(headA) * orbRy;
                                                     ctx.beginPath();
-                                                    ctx.arc(hx, hy, 5.8, 0, Math.PI * 2);
-                                                    ctx.fillStyle = Qt.rgba(col.r, col.g, col.b, 0.28);
+                                                    ctx.arc(hx, hy, 3.6, 0, Math.PI * 2);
+                                                    ctx.fillStyle = Qt.rgba(col.r, col.g, col.b, 0.14);
                                                     ctx.fill();
                                                     ctx.beginPath();
-                                                    ctx.arc(hx, hy, 2.3, 0, Math.PI * 2);
-                                                    ctx.fillStyle = Qt.rgba(1, 1, 1, 0.96);
+                                                    ctx.arc(hx, hy, 1.5, 0, Math.PI * 2);
+                                                    ctx.fillStyle = Qt.rgba(1, 1, 1, 0.85);
                                                     ctx.fill();
                                                 }
                                             }
@@ -9081,9 +9124,9 @@ Scope {
                         shadowAmt: 0
                         flatInner: 1
                         rimTint: 1
-                        ringW: 0
+                        ringW: 1.4
                         cornerR: 14
-                        tint: root.glassOpacity
+                        tint: root.panelDarkMode ? Math.max(root.glassOpacity, 0.55) : root.glassOpacity
                         thickness: 22
                         strength: 0.55 * root.glassLiquid
                         rim: root.glassRim
@@ -9091,6 +9134,16 @@ Scope {
                         blur: 42
                         debug: root.glassDebug
                         onShaderError: root.glassState = "failed"
+                    }
+                    // dark mode: Dock-label style dark tint over the glass
+                    Rectangle {
+                        visible: root.panelDarkMode
+                        anchors.fill: parent
+                        radius: 14
+                        gradient: Gradient {
+                            GradientStop { position: 0.0; color: Qt.rgba(56 / 255, 56 / 255, 62 / 255, 0.34) }
+                            GradientStop { position: 1.0; color: Qt.rgba(30 / 255, 30 / 255, 34 / 255, 0.38) }
+                        }
                     }
                     // same border as the top-bar menus (File, Edit, ...)
                     MenuBorder {
@@ -11454,9 +11507,9 @@ Scope {
                         dark: root.effDark
                         bx: levelOsd.x; by: levelOsd.y
                         cornerR: height / 2
-                        tint: root.glassOpacity
+                        tint: root.panelDarkMode ? Math.max(root.glassOpacity, 0.55) : root.glassOpacity
                         thickness: 22
-                        strength: 0.7 * root.glassLiquid
+                        strength: 0.55 * root.glassLiquid
                         rim: root.glassRim
                         grain: root.glassGrain
                         blur: root.glassBlur
@@ -11466,6 +11519,15 @@ Scope {
                         ringW: 1.4
                         shadowAmt: 0        // no outer drop shadow
                         flatInner: 1        // no darker inner edge shading
+                    }
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: height / 2
+                        visible: root.panelDarkMode
+                        gradient: Gradient {
+                            GradientStop { position: 0.0; color: Qt.rgba(56 / 255, 56 / 255, 62 / 255, 0.34) }
+                            GradientStop { position: 1.0; color: Qt.rgba(30 / 255, 30 / 255, 34 / 255, 0.38) }
+                        }
                     }
                     MenuBorder {
                         z: 2
@@ -12256,8 +12318,17 @@ Scope {
                             y: 58
                             width: 250
                             height: 3 * 40 + 12
-                            GGlass { anchors.fill: parent; gx: spg; cornerR: 20; thickness: 26; strengthMul: 1.0; shadowAmt: 0.26 }
-                            MenuBorder { amount: 0.3; anchors.fill: parent; cornerR: 20; dark: root.panelDarkMode; tint: root.menuBorderColor }
+                            GGlass { anchors.fill: parent; gx: spg; cornerR: 20; thickness: 26; strengthMul: 1.0; shadowAmt: 0 }
+                            Rectangle {
+                                anchors.fill: parent
+                                radius: 20
+                                visible: root.panelDarkMode
+                                gradient: Gradient {
+                                    GradientStop { position: 0.0; color: Qt.rgba(56 / 255, 56 / 255, 62 / 255, 0.34) }
+                                    GradientStop { position: 1.0; color: Qt.rgba(30 / 255, 30 / 255, 34 / 255, 0.38) }
+                                }
+                            }
+                            MenuBorder { amount: 1; anchors.fill: parent; cornerR: 20; dark: root.panelDarkMode; tint: root.menuBorderColor }
                             Column {
                                 x: 6; y: 6
                                 width: parent.width - 12
