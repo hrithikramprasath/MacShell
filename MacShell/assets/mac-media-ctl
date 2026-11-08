@@ -6,6 +6,7 @@ import re
 import json
 import subprocess
 import time
+from urllib.parse import urlparse
 
 def get_playlists():
     results = []
@@ -101,8 +102,10 @@ def get_playlists():
                 if "i.scdn.co/image/" in img:
                     m_scdn = re.match(r"^(https://i\.scdn\.co/image/ab67[0-9a-f]{36})", img)
                     img = m_scdn.group(1) if m_scdn else ""
-                elif "spotifycdn.com/" in img and len(img) < 48:
-                    img = ""
+                else:
+                    host = (urlparse(img).hostname or "").lower()
+                    if (host == "spotifycdn.com" or host.endswith(".spotifycdn.com")) and len(img) < 48:
+                        img = ""
             if not img:
                 hm = hash_re.search(chunk)
                 if hm:
