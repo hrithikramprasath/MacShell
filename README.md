@@ -222,7 +222,7 @@ This pulls upstream changes, cleanly 3-way merges them on top of your custom fea
       qt6-base qt6-declarative qt6-wayland qt6-shadertools qt6-svg \
       grim slurp wl-clipboard wf-recorder cliphist \
       libnotify brightnessctl \
-      networkmanager bluez bluez-utils usb_modeswitch \
+      networkmanager wireless-regdb iw bluez bluez-utils usb_modeswitch \
       inotify-tools \
       inter-font noto-fonts noto-fonts-emoji \
       xdg-desktop-portal-hyprland \

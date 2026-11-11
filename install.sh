@@ -344,6 +344,7 @@ OPTIONAL=(
     "hypridle:hypridle:lock on idle (optional)"
     "wtype:wtype:menu bar keyboard shortcuts in browsers and apps"
     "usb_modeswitch:usb_modeswitch:switching 2-in-1 Wi-Fi and Bluetooth adapters from CD-ROM to active mode"
+    "iw:iw:Wi-Fi regulatory domain and channel management"
 )
 # libraries / fonts / packages without a command to test: arch-package:what-for   (a|b = first one the repositories have)
 LIBS=(
@@ -362,6 +363,7 @@ LIBS=(
     "mesa:OpenGL drivers (Qt Quick draws with OpenGL; needed on every GPU)"
     "xdg-desktop-portal-hyprland:screen sharing and screenshots through portals"
     "polkit:privilege prompts"
+    "wireless-regdb:wireless regulatory database (enables channels 12/13 and 5GHz DFS)"
 )
 LIBS_LOCK=(
     "hyprlock:the PAM stack MacLock checks passwords with (/etc/pam.d/hyprlock)"
@@ -788,6 +790,19 @@ enable_services() {
         done
         if [ "${#pw[@]}" -gt 0 ] && confirm "Enable the audio services (${pw[*]}); volume and sound need them?" y; then
             systemctl --user enable --now "${pw[@]}" >/dev/null 2>&1 && ok "audio services enabled" || warn "could not enable ${pw[*]}"
+        fi
+    fi
+
+    # Regulatory database: set country domain from system locale if unconfigured (world domain 00)
+    if have iw; then
+        local cur_reg
+        cur_reg=$(iw reg get 2>/dev/null | awk '/country/ {print $2}' | tr -d ':' | head -n1 || true)
+        if [ -z "$cur_reg" ] || [ "$cur_reg" = "00" ]; then
+            local loc
+            loc=$(locale 2>/dev/null | awk -F= '/LC_TIME|LANG/ {print $2}' | grep -o '[A-Z]\{2\}' | head -n1 || true)
+            if [ -n "$loc" ]; then
+                $s iw reg set "$loc" >/dev/null 2>&1 || true
+            fi
         fi
     fi
     return 0

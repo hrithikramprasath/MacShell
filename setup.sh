@@ -63,7 +63,7 @@ log_step "Installing Arch Linux official dependencies (pacman)..."
 ARCH_PKGS=(
     git base-devel hyprland hypridle
     pipewire wireplumber pipewire-pulse pipewire-alsa libmysofa
-    bluez bluez-utils usb_modeswitch networkmanager
+    bluez bluez-utils usb_modeswitch networkmanager wireless-regdb iw
     python python-pip playerctl brightnessctl ddcutil libnotify
     grim slurp wf-recorder wl-clipboard
     socat jq inotify-tools imagemagick
@@ -77,6 +77,18 @@ log_ok "Official repository packages installed"
 if have systemctl; then
     sudo systemctl enable --now bluetooth.service 2>/dev/null || true
     log_ok "Bluetooth service enabled"
+fi
+
+# Apply wireless regulatory domain from system locale if unconfigured
+if have iw; then
+    current_reg=$(iw reg get 2>/dev/null | awk '/country/ {print $2}' | tr -d ':' | head -n1 || true)
+    if [ -z "$current_reg" ] || [ "$current_reg" = "00" ]; then
+        loc_country=$(locale 2>/dev/null | awk -F= '/LC_TIME|LANG/ {print $2}' | grep -o '[A-Z]\{2\}' | head -n1 || true)
+        if [ -n "$loc_country" ]; then
+            sudo iw reg set "$loc_country" 2>/dev/null || true
+            log_ok "Wireless regulatory domain set to $loc_country"
+        fi
+    fi
 fi
 
 # 3. AUR Helper & Quickshell Setup
