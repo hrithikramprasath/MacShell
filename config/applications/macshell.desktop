@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=MacShell
+Comment=macOS-like desktop environment for Hyprland
+Exec=qs -c MacShell ipc call settings open
+Icon=macshell
+Terminal=false
+Categories=System;Settings;
