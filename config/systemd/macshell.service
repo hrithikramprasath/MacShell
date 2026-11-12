@@ -1,6 +1,7 @@
 [Unit]
 Description=MacShell Desktop Environment (Menu Bar, Dock, Control Center, OSD, Notifications)
 Documentation=https://github.com/hrithikramprasath/MacShell
+ConditionEnvironment=WAYLAND_DISPLAY
 After=graphical-session.target
 PartOf=graphical-session.target
 
@@ -14,4 +15,4 @@ Restart=always
 RestartSec=1s
 
 [Install]
-WantedBy=graphical-session.target default.target
+WantedBy=graphical-session.target

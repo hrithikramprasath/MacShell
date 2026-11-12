@@ -63,18 +63,44 @@
 #       --local           install the local copy as it is, do not look for a newer version on GitHub
 #       --auto-update     install a daily systemd user timer that updates MacShell + MacLock by itself
 #       --no-auto-update  remove that timer
+#       --lock-on-boot    lock immediately with MacLock when Hyprland starts on boot
+#       --no-lock-on-boot disable MacLock on boot
+#       --disable-autologin  disable detected TTY/display-manager autologin (restores password login prompt)
+#       --no-tty-autostart   do not add TTY1 Hyprland auto-launch to fish/bash/zsh login config
 #   -h, --help
 #
 # Environment variables for the shell itself (icon theme, Qt platform, software rendering, ...) go in
 #   ~/.config/macshell/env   (the installer creates it with comments; macshell-start reads it)
 #
 # Environment: MACSHELL_FROM_DIR (install from this folder instead of downloading: the graphical installer sets it),
-#              MACSHELL_REPO (default 0-ss/MacShell), MACSHELL_BRANCH (default main), MACSHELL_CHANNEL, MACSHELL_DEST,
+#              MACSHELL_REPO (default hrithikramprasath/MacShell), MACSHELL_BRANCH (default main), MACSHELL_CHANNEL, MACSHELL_DEST,
 #              MACLOCK_DEST, GITHUB_TOKEN
 
 set -euo pipefail
 
-REPO="${MACSHELL_REPO:-0-ss/MacShell}"
+# If piped via `curl ... | bash`, re-attach stdin to the active terminal when a controlling tty exists
+if [ ! -t 0 ] && { true < /dev/tty; } 2>/dev/null; then
+    exec < /dev/tty
+fi
+
+detect_origin_repo() {
+    local here="${BASH_SOURCE[0]:-}" d url=""
+    [ -n "$here" ] && [ -f "$here" ] || return 0
+    d=$(cd "$(dirname "$here")" 2>/dev/null && pwd) || return 0
+    command -v git >/dev/null 2>&1 || return 0
+    url=$(git -C "$d" remote get-url origin 2>/dev/null || true)
+    case "$url" in
+        *github.com[:/]*)
+            url="${url#*github.com[:/]}"
+            url="${url%.git}"
+            url="${url%/}"
+            case "$url" in */*) printf '%s' "$url" ;; esac
+            ;;
+    esac
+}
+
+REPO="${MACSHELL_REPO:-$(detect_origin_repo)}"
+REPO="${REPO:-hrithikramprasath/MacShell}"
 BRANCH="${MACSHELL_BRANCH:-main}"
 NAME="MacShell"
 CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
@@ -101,6 +127,8 @@ MACLUA_BEGIN="-- >>> MacShell module (added by install.sh) >>>"
 MACLUA_END="-- <<< MacShell module <<<"
 CONF_BEGIN="# >>> MacShell (added by install.sh) >>>"
 CONF_END="# <<< MacShell <<<"
+SHELL_MARK_BEGIN="# >>> MacShell Hyprland autostart >>>"
+SHELL_MARK_END="# <<< MacShell Hyprland autostart <<<"
 
 ENV_DIR="$CONFIG_HOME/macshell"
 DOCTOR=0
@@ -117,8 +145,11 @@ SKIP_DEPS=0
 DEPS_ONLY=0
 SKIP_SERVICES=0
 SKIP_AUTOSTART=0
+SKIP_TTY_AUTOSTART=0
 SKIP_RULES=0
 SKIP_LOCK=0
+LOCK_ON_BOOT=""   # yes | no | "" (auto)
+DISABLE_AUTOLOGIN=0
 CHECK_ONLY=0
 LOCAL_ONLY=0
 AUTO_UPDATE=""
@@ -153,12 +184,14 @@ ver_ge() { # ver_ge A B: is A the same as, or newer than, B?
     [ "$(printf '%s\n%s\n' "$a" "$b" | sort -V | tail -n1)" = "$a" ]
 }
 
+has_tty() { { true <> /dev/tty; } 2>/dev/null; }
+
 # confirm "question" [default y|n]
 confirm() {
     local def="${2:-y}" ans="" hint="[Y/n]"
     [ "$def" = n ] && hint="[y/N]"
     [ "$ASSUME_YES" = 1 ] && return 0
-    if [ -r /dev/tty ] && [ -w /dev/tty ]; then
+    if has_tty; then
         printf '%s %s ' "$1" "$hint" >/dev/tty
         read -r ans </dev/tty || ans=""
     else
@@ -182,8 +215,12 @@ while [ $# -gt 0 ]; do
         --doctor) DOCTOR=1; MODE_FLAG=1 ;;
         --low-power) LOW_POWER=1 ;;
         --no-autostart) SKIP_AUTOSTART=1 ;;
+        --no-tty-autostart) SKIP_TTY_AUTOSTART=1 ;;
         --no-rules) SKIP_RULES=1 ;;
         --no-lock) SKIP_LOCK=1 ;;
+        --lock-on-boot) LOCK_ON_BOOT=yes ;;
+        --no-lock-on-boot) LOCK_ON_BOOT=no ;;
+        --disable-autologin) DISABLE_AUTOLOGIN=1 ;;
         --gui) GUI=yes; MODE_FLAG=1 ;;
         --no-gui) GUI=no ;;
         --check) CHECK_ONLY=1; SKIP_DEPS=1; MODE_FLAG=1 ;;
@@ -276,6 +313,11 @@ remove_hypr_blocks() {
     fi
     f="$HYPR_DIR/hyprland.conf"
     [ -f "$f" ] && grep -qF -- "$CONF_BEGIN" "$f" && { sedi "\|$CONF_BEGIN|,\|$CONF_END|d" "$f"; ok "removed the MacShell block from $f"; }
+    f="$CONFIG_HOME/fish/conf.d/macshell.fish"
+    [ -f "$f" ] && { rm -f "$f"; ok "removed $f"; }
+    for f in "$HOME/.bash_profile" "$HOME/.zprofile"; do
+        [ -f "$f" ] && grep -qF -- "$SHELL_MARK_BEGIN" "$f" && { sedi "\|$SHELL_MARK_BEGIN|,\|$SHELL_MARK_END|d" "$f"; ok "removed the MacShell block from $f"; }
+    done
     return 0
 }
 
@@ -292,6 +334,12 @@ do_uninstall() {
         mv "$LOCK_DEST" "$BACKUP_DIR/$ts/$LOCK_NAME"; ok "moved $LOCK_DEST to $BACKUP_DIR/$ts/"
     fi
     remove_auto_update quiet
+    if have systemctl && systemctl --user show-environment >/dev/null 2>&1; then
+        systemctl --user disable --now macshell.service macshell-earbuds-sync.service >/dev/null 2>&1 || true
+    fi
+    rm -f "$UNIT_DIR/macshell.service" "$UNIT_DIR/macshell-earbuds-sync.service"
+    have systemctl && systemctl --user daemon-reload >/dev/null 2>&1 || true
+    rm -f "$CONFIG_HOME/maclock/lock-on-boot"
     remove_hypr_blocks
     rm -rf "$GUI_DEST"; rm -f "$LINK_DIR/macshell-installer" "$BIN_DIR/macshell-installer" "$APPS_DIR/macshell-installer.desktop"
     rm -f "$LINK_DIR/macshell-update" "$LINK_DIR/macshell-start" "$BIN_DIR/macshell-update" "$BIN_DIR/macshell-start" "$STATE_DIR/state.env"
@@ -1096,6 +1144,52 @@ run_doctor() {
         fi
     fi
     [ -e /etc/pam.d/hyprlock ] && d_ok "/etc/pam.d/hyprlock (MacLock passwords)" || d_bad "/etc/pam.d/hyprlock is missing: install hyprlock"
+    local msvc_u="$UNIT_DIR/macshell.service"
+    if [ -f "$msvc_u" ]; then
+        if grep -qF 'ConditionEnvironment=WAYLAND_DISPLAY' "$msvc_u" && ! grep -qF 'default.target' "$msvc_u"; then
+            d_ok "macshell.service waits for WAYLAND_DISPLAY"
+        else
+            d_bad "macshell.service is outdated (starts before Wayland): run  bash install.sh"
+        fi
+    fi
+
+    # boot login & lock screen security
+    local boot_locked=0 auto_entries="" auto_detail=""
+    if [ -f "$CONFIG_HOME/maclock/lock-on-boot" ] && [ "$(tr -d '[:space:]' < "$CONFIG_HOME/maclock/lock-on-boot" 2>/dev/null || true)" = "1" ]; then
+        boot_locked=1
+    fi
+    auto_entries=$(detect_autologin || true)
+    if [ -n "$auto_entries" ]; then
+        while IFS='|' read -r _ _ auto_detail; do
+            [ -n "$auto_detail" ] || continue
+            if [ "$boot_locked" = 1 ] && [ -e /etc/pam.d/hyprlock ] && [ -x "$LOCK_DEST/lock-on-boot.sh" ]; then
+                say "  ${D}- autologin active ($auto_detail), guarded by MacLock on boot${N}"
+            else
+                d_bad "autologin skips password login on boot ($auto_detail): run  macshell-install --disable-autologin  or  macshell-install --lock-on-boot"
+            fi
+        done <<<"$auto_entries"
+    else
+        d_ok "no system autologin detected (boot login asks for password)"
+    fi
+    if [ "$boot_locked" = 1 ]; then
+        if [ -e /etc/pam.d/hyprlock ] && [ -x "$LOCK_DEST/lock-on-boot.sh" ]; then
+            d_ok "MacLock boot-lock enabled (locks immediately when Hyprland starts)"
+        else
+            d_bad "MacLock boot-lock is enabled but /etc/pam.d/hyprlock or lock-on-boot.sh is missing"
+        fi
+    fi
+    if have fish || [ "${SHELL##*/}" = "fish" ] || [ -d "$CONFIG_HOME/fish" ]; then
+        if [ -f "$CONFIG_HOME/fish/conf.d/macshell.fish" ]; then
+            d_ok "fish config: $CONFIG_HOME/fish/conf.d/macshell.fish"
+            if fish_has_hypr_autostart || grep -qE 'start-hyprland|Hyprland' "$CONFIG_HOME/fish/conf.d/macshell.fish" 2>/dev/null; then
+                d_ok "fish TTY1 Hyprland auto-launch configured"
+            elif ! has_display_manager; then
+                say "  ${D}- fish does not auto-launch Hyprland on TTY1 (run install.sh without --no-tty-autostart)${N}"
+            fi
+        else
+            d_bad "fish config missing ($CONFIG_HOME/fish/conf.d/macshell.fish): run  bash install.sh"
+        fi
+    fi
 
     # helper scripts
     for u in macshell-setwall.sh macshell-gaming.sh macshell-wallpause.sh macshell-wallpaper.sh; do
@@ -1103,6 +1197,7 @@ run_doctor() {
     done
     if [ -f "$LOCK_DEST/shell.qml" ]; then
         if [ -x "$LOCK_DEST/lock-via-ipc.sh" ]; then d_ok "lock helper: lock-via-ipc.sh"; else d_bad "$LOCK_DEST/lock-via-ipc.sh is missing or not executable: run  bash install.sh"; fi
+        if [ -x "$LOCK_DEST/lock-on-boot.sh" ]; then d_ok "lock helper: lock-on-boot.sh"; else d_bad "$LOCK_DEST/lock-on-boot.sh is missing or not executable: run  bash install.sh"; fi
         if [ -x "$SCRIPTS_DIR/maclock.sh" ]; then d_ok "helper: maclock.sh"; else d_bad "helper script missing: $SCRIPTS_DIR/maclock.sh (older hypridle / keybind setups call it): run  bash install.sh"; fi
     fi
     have mpvpaper && d_ok "mpvpaper is installed" || say "  ${D}- mpvpaper is not installed (animated wallpapers)${N}"
@@ -1142,7 +1237,7 @@ run_doctor() {
 BIND_HELP_URL="https://github.com/0-ss/MacShell#hyprland-configuration-lua"
 maybe_menu() {
     [ "$MODE_FLAG" = 1 ] || [ "$ASSUME_YES" = 1 ] && return 0
-    [ -r /dev/tty ] && [ -w /dev/tty ] || return 0
+    has_tty || return 0
     local inst ans latest
     inst=$(installed_version); inst="${inst:-$(state_get installed)}"
     say ""
@@ -1448,12 +1543,33 @@ log() { printf '%s macshell-start: %s\n' "$(date '+%F %T')" "$*" >> "$LOG" 2>/de
 
 command -v qs >/dev/null 2>&1 || { echo "macshell-start: qs (quickshell) not found in PATH" >&2; log "qs (quickshell) not found in PATH"; exit 1; }
 
-# wait (up to 20 s) until the Wayland socket exists
+# wait (up to 20 s) until the Wayland socket exists; probe XDG_RUNTIME_DIR if WAYLAND_DISPLAY is unset
+RT="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 i=0
 while [ "$i" -lt 100 ]; do
-    if [ -n "${WAYLAND_DISPLAY:-}" ] && [ -S "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/$WAYLAND_DISPLAY" ]; then break; fi
+    if [ -z "${WAYLAND_DISPLAY:-}" ]; then
+        for sock in "$RT"/wayland-[0-9]*; do
+            case "$sock" in *.lock) continue ;; esac
+            if [ -S "$sock" ]; then
+                WAYLAND_DISPLAY=$(basename "$sock")
+                export WAYLAND_DISPLAY
+                break
+            fi
+        done
+    fi
+    if [ -n "${WAYLAND_DISPLAY:-}" ] && [ -S "$RT/$WAYLAND_DISPLAY" ]; then break; fi
     i=$((i + 1)); sleep 0.2
 done
+if [ -z "${WAYLAND_DISPLAY:-}" ] || [ ! -S "$RT/$WAYLAND_DISPLAY" ]; then
+    echo "macshell-start: Wayland display socket not found in $RT" >&2
+    log "Wayland display socket not found in $RT"
+    exit 1
+fi
+if [ -z "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] && [ -d "$RT/hypr" ]; then
+    for hdir in "$RT"/hypr/*; do
+        [ -d "$hdir" ] && [ -S "$hdir/.socket.sock" ] && { HYPRLAND_INSTANCE_SIGNATURE=$(basename "$hdir"); export HYPRLAND_INSTANCE_SIGNATURE; break; }
+    done
+fi
 
 # already running for this user? then there is nothing to do
 if pgrep -u "$(id -u)" -f "(^|/)(qs|quickshell)( .*)? (-c|--config) $NAME( |\$)" >/dev/null 2>&1; then exit 0; fi
@@ -1484,7 +1600,7 @@ if [ -z "${QS_ICON_THEME:-}" ] && [ -z "${QT_QPA_PLATFORMTHEME:-}" ]; then
 fi
 # portals and services started later by D-Bus / systemd need to know the session too
 if command -v dbus-update-activation-environment >/dev/null 2>&1; then
-    dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE XDG_SESSION_DESKTOP >/dev/null 2>&1
+    dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE XDG_SESSION_DESKTOP HYPRLAND_INSTANCE_SIGNATURE >/dev/null 2>&1
 fi
 
 # ── wallpaper: awww forgets it at every reboot. If awww was used before (and no other wallpaper tool runs), bring it back
@@ -1727,10 +1843,25 @@ install_extras() {
         ok "macshell desktop service -> $UNIT_DIR/macshell.service"
         if have systemctl && systemctl --user show-environment >/dev/null 2>&1; then
             systemctl --user daemon-reload 2>/dev/null || true
-            systemctl --user enable --now macshell.service 2>/dev/null || true
+            systemctl --user enable macshell.service 2>/dev/null || true
+            if systemctl --user show-environment 2>/dev/null | grep -q '^WAYLAND_DISPLAY='; then
+                systemctl --user restart macshell.service 2>/dev/null || true
+            fi
             ok "macshell desktop service enabled"
         fi
     fi
+    local hidle=""
+    [ -f "$root/config/hypr/hypridle.conf" ] && hidle="$root/config/hypr/hypridle.conf"
+    [ -n "$hidle" ] || hidle=$(find "$root" -maxdepth 4 -type f -name hypridle.conf -not -path '*/.git/*' 2>/dev/null | head -n1 || true)
+    if [ -n "$hidle" ] && [ -f "$hidle" ]; then
+        local existed=0; [ -e "$HYPR_DIR/hypridle.conf" ] && existed=1
+        local htmp; htmp=$(mktemp)
+        sed "s|__HOME__|$HOME|g" "$hidle" > "$htmp"
+        install_managed "$htmp" "$HYPR_DIR/hypridle.conf"
+        rm -f "$htmp"
+        if [ "$existed" = 0 ] && [ -f "$HYPR_DIR/hypridle.conf" ]; then ok "hypridle config -> $HYPR_DIR/hypridle.conf"; fi
+    fi
+    return 0
 }
 
 write_state() {
@@ -1778,12 +1909,20 @@ write_macshell_lua() {
 -- autostart (remove other bars / docks / notification daemons first).
 -- install.sh adds this for you; macshell-start waits for the compositor and restarts the shell if it crashes.
 hl.on("hyprland.start", function()
+    hl.exec_cmd("dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE XDG_SESSION_DESKTOP HYPRLAND_INSTANCE_SIGNATURE")
     hl.exec_cmd("awww-daemon")
+    -- Lock immediately on boot when MacLock boot-locking is enabled (e.g. with autologin).
+    hl.exec_cmd("sh ~/.config/quickshell/MacLock/lock-on-boot.sh")
     -- Install/update Hypridle's before_sleep_cmd hook (lid close is covered when it suspends).
     hl.exec_cmd("sh ~/.config/quickshell/MacLock/enable-sleep-lock.sh")
     hl.exec_cmd("sh ~/.local/bin/macshell-start")
 end)
--- The Settings window floats and centres itself when it opens, so it needs no window rule.
+pcall(hl.config, {
+    misc = {
+        allow_session_lock_restore = true,
+    },
+})
+-- The Settings window floats and centres itself: the shell registers its own window rule at start-up, so this file needs none.
 
 -- keybinds (the name after -c is the config folder name, case-sensitive)
 local qs = "qs -c MacShell ipc call "
@@ -1826,8 +1965,8 @@ local hwkeys = {
     { "XF86AudioLowerVolume",  hw("volumeDown",     "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"),        true  },
     { "XF86AudioMute",         hw("mute",           "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"),       false },
     { "XF86AudioMicMute",      hw("micMute",        "wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle"),     false },
-    { "XF86MonBrightnessUp",   hw("brightnessUp",   "brightnessctl -q set 5%+"),                         true  },
-    { "XF86MonBrightnessDown", hw("brightnessDown", "brightnessctl -q -n1 set 5%-"),                     true  },
+    { "XF86MonBrightnessUp",   hw("brightnessUp",   "brightnessctl -q -c backlight set 5%+ 2>/dev/null || ddcutil setvcp 10 + 5"),                      true  },
+    { "XF86MonBrightnessDown", hw("brightnessDown", "brightnessctl -q -n1 -c backlight set 5%- 2>/dev/null || ddcutil setvcp 10 - 5"),                  true  },
     { "XF86KbdBrightnessUp",   "brightnessctl -q -d '*kbd_backlight*' set 10%+",                         true  },
     { "XF86KbdBrightnessDown", "brightnessctl -q -d '*kbd_backlight*' set 10%-",                         true  },
     { "XF86AudioPlay",         "playerctl play-pause",                                                   false },
@@ -1867,10 +2006,46 @@ lua_block() { # lua_block <with-rules 0|1>
     printf '%s\n' "$MARK_END"
 }
 
+find_starter_hyprland_lua() {
+    local root="${SRC_ROOT:-}"
+    [ -n "$root" ] || return 1
+    if [ -f "$root/config/hypr/hyprland.lua" ]; then
+        printf '%s' "$root/config/hypr/hyprland.lua"
+        return 0
+    fi
+    find "$root" -maxdepth 4 -type f -name hyprland.lua -path '*/config/hypr/*' -not -path '*/.git/*' 2>/dev/null | head -n1
+}
+
+is_autogenerated_hypr_conf() {
+    [ -f "$1" ] && grep -qiE 'AUTOGENERATED HYPRLAND CONFIG|autogenerated[[:space:]]*=[[:space:]]*1' "$1"
+}
+
 add_autostart() {
     [ "$SKIP_AUTOSTART" = 1 ] && return 0
-    step "Hyprland autostart"
-    local conf="$HYPR_DIR/hyprland.conf" lua="$HYPR_DIR/hyprland.lua" rules=0
+    step "Hyprland configuration & autostart"
+    mkdir -p "$HYPR_DIR"
+    local conf="$HYPR_DIR/hyprland.conf" lua="$HYPR_DIR/hyprland.lua" rules=0 starter=""
+    starter=$(find_starter_hyprland_lua || true)
+
+    # On a fresh laptop (no hyprland.lua yet), deploy the full starter hyprland.lua automatically when
+    # no hyprland.conf exists, or when hyprland.conf is Hyprland's default untouched autogenerated file.
+    if [ ! -f "$lua" ] && [ -n "$starter" ] && [ -f "$starter" ]; then
+        if [ ! -f "$conf" ]; then
+            install -m 644 "$starter" "$lua"
+            ok "installed starter Hyprland Lua config -> $lua"
+        elif is_autogenerated_hypr_conf "$conf"; then
+            if confirm "Found default autogenerated hyprland.conf. Switch to MacShell's Hyprland Lua config ($lua)?" y; then
+                [ -e "$conf.macshell-backup" ] || cp -p "$conf" "$conf.macshell-backup"
+                install -m 644 "$starter" "$lua"
+                ok "installed Hyprland Lua config -> $lua (backed up $conf -> $conf.macshell-backup)"
+            fi
+        elif [ "$ASSUME_YES" != 1 ] && confirm "No hyprland.lua found. Deploy MacShell's full Hyprland Lua config ($lua) instead of legacy hyprland.conf?" n; then
+            [ -e "$conf.macshell-backup" ] || cp -p "$conf" "$conf.macshell-backup"
+            install -m 644 "$starter" "$lua"
+            ok "installed Hyprland Lua config -> $lua (backed up $conf -> $conf.macshell-backup)"
+        fi
+    fi
+
     if [ -f "$lua" ]; then
         if grep -qF -- "$MARK_BEGIN" "$lua"; then
             # refresh our own block (keeps the start command current), keeps everything else as it is
@@ -1884,8 +2059,10 @@ add_autostart() {
                 cp -f "$lua" "$lua.macshell-backup"
                 { echo; lua_block 0; } >> "$lua"
                 ok "added the MacShell module loader to $lua (backup: $lua.macshell-backup)"
-                have hyprctl && [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] && hyprctl reload >/dev/null 2>&1 && ok "Hyprland config reloaded"
             else
+                if grep -qF 'require("macshell")' "$lua" && ! grep -qF 'package.loaded["macshell"] = nil' "$lua"; then
+                    sedi 's/require("macshell")/package.loaded["macshell"] = nil\nrequire("macshell")/' "$lua"
+                fi
                 ok "$lua already loads the MacShell module"
             fi
         else
@@ -1894,8 +2071,8 @@ add_autostart() {
             cp -f "$lua" "$lua.macshell-backup"
             { echo; lua_block "$rules"; } >> "$lua"
             ok "added the autostart to $lua (backup: $lua.macshell-backup)"
-            have hyprctl && [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] && hyprctl reload >/dev/null 2>&1 && ok "Hyprland config reloaded"
         fi
+        have hyprctl && [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] && hyprctl reload >/dev/null 2>&1 && ok "Hyprland config reloaded"
     elif [ -f "$conf" ]; then
         if grep -qF -- "$CONF_BEGIN" "$conf"; then
             sedi "\|$CONF_BEGIN|,\|$CONF_END|d" "$conf"
@@ -1916,6 +2093,277 @@ add_autostart() {
         say "      conf:  exec-once = $(START_CMD)"
     fi
     stop_conflicts
+    return 0
+}
+
+# ───────────────────────── shell & boot autostart (fish / bash / zsh) ─────────────────────────
+has_display_manager() {
+    have systemctl || return 1
+    systemctl is-enabled --quiet display-manager.service 2>/dev/null && return 0
+    local dm
+    for dm in sddm gdm lightdm greetd ly lxdm; do
+        systemctl is-enabled --quiet "$dm.service" 2>/dev/null && return 0
+    done
+    return 1
+}
+
+fish_has_hypr_autostart() {
+    local f
+    for f in "$CONFIG_HOME/fish/config.fish" "$CONFIG_HOME/fish/conf.d/"*.fish; do
+        [ -f "$f" ] || continue
+        [ "$f" = "$CONFIG_HOME/fish/conf.d/macshell.fish" ] && continue
+        grep -Eq '(^|[[:space:]])(exec[[:space:]]+)?(start-hyprland|Hyprland|uwsm[[:space:]]+start)([[:space:]]|$)' "$f" 2>/dev/null && return 0
+    done
+    return 1
+}
+
+posix_has_hypr_autostart() {
+    local f="$1"
+    [ -f "$f" ] || return 1
+    grep -v "$SHELL_MARK_BEGIN" "$f" 2>/dev/null \
+        | grep -Eq '(^|[[:space:]])(exec[[:space:]]+)?(start-hyprland|Hyprland|uwsm[[:space:]]+start)([[:space:]]|$)'
+}
+
+setup_shell_autostart() {
+    [ "$SKIP_AUTOSTART" = 1 ] && return 0
+    step "Shell & Hyprland boot setup"
+    local dm_active=0 want_tty_auto=1
+    has_display_manager && dm_active=1
+    [ "$SKIP_TTY_AUTOSTART" = 1 ] && want_tty_auto=0
+    if [ "$dm_active" = 1 ]; then
+        ok "display manager is enabled (Hyprland session launches from your login manager)"
+    fi
+
+    # 1. Fish shell: PATH + optional TTY1 Hyprland auto-launch
+    if have fish || [ "${SHELL##*/}" = "fish" ] || [ -d "$CONFIG_HOME/fish" ]; then
+        mkdir -p "$CONFIG_HOME/fish/conf.d"
+        local ff="$CONFIG_HOME/fish/conf.d/macshell.fish"
+        {
+            printf '%s\n' "# Managed by MacShell install.sh"
+            printf '%s\n' 'if test -d "$HOME/.local/bin"'
+            printf '%s\n' '    fish_add_path -g "$HOME/.local/bin"'
+            printf '%s\n' 'end'
+            if [ "$want_tty_auto" = 1 ] && [ "$dm_active" = 0 ] && ! fish_has_hypr_autostart; then
+                printf '\n%s\n' '# Auto-start Hyprland on TTY1 login (does not bypass your login password)'
+                printf '%s\n' 'if status is-login'
+                printf '%s\n' '    if test -z "$DISPLAY" -a -z "$WAYLAND_DISPLAY"'
+                printf '%s\n' '        if test (tty 2>/dev/null) = "/dev/tty1"'
+                printf '%s\n' '            if command -sq start-hyprland'
+                printf '%s\n' '                exec start-hyprland'
+                printf '%s\n' '            else if command -sq Hyprland'
+                printf '%s\n' '                exec Hyprland'
+                printf '%s\n' '            end'
+                printf '%s\n' '        end'
+                printf '%s\n' '    end'
+                printf '%s\n' 'end'
+            fi
+        } > "$ff"
+        if [ "$want_tty_auto" = 1 ] && [ "$dm_active" = 0 ]; then
+            if fish_has_hypr_autostart; then
+                ok "fish PATH configured ($ff; existing fish Hyprland autostart kept)"
+            else
+                ok "fish configured to add ~/.local/bin and auto-start Hyprland on TTY1 login ($ff)"
+            fi
+        else
+            ok "fish PATH configured ($ff)"
+        fi
+    fi
+
+    # 2. Bash / Zsh: PATH + TTY1 Hyprland auto-launch (when no display manager is enabled)
+    local prof=""
+    case "${SHELL##*/}" in
+        bash) prof="$HOME/.bash_profile" ;;
+        zsh)  prof="$HOME/.zprofile" ;;
+    esac
+    if [ -n "$prof" ] && [ "$want_tty_auto" = 1 ] && [ "$dm_active" = 0 ]; then
+        if [ -f "$prof" ] && grep -qF -- "$SHELL_MARK_BEGIN" "$prof"; then
+            sedi "\|$SHELL_MARK_BEGIN|,\|$SHELL_MARK_END|d" "$prof"
+            trim_blank_tail "$prof"
+        fi
+        if ! posix_has_hypr_autostart "$prof"; then
+            {
+                [ -s "$prof" ] && echo
+                cat <<EOF
+$SHELL_MARK_BEGIN
+case ":\$PATH:" in *":\$HOME/.local/bin:"*) ;; *) export PATH="\$HOME/.local/bin:\$PATH" ;; esac
+if [ -z "\${DISPLAY:-}" ] && [ -z "\${WAYLAND_DISPLAY:-}" ] && [ "\$(tty 2>/dev/null)" = "/dev/tty1" ]; then
+    if command -v start-hyprland >/dev/null 2>&1; then
+        exec start-hyprland
+    elif command -v Hyprland >/dev/null 2>&1; then
+        exec Hyprland
+    fi
+fi
+$SHELL_MARK_END
+EOF
+            } >> "$prof"
+            ok "configured $prof to auto-start Hyprland on TTY1 login"
+        else
+            ok "$prof already launches Hyprland on login"
+        fi
+    fi
+    return 0
+}
+
+# ───────────────────────── boot login / lock screen audit ─────────────────────────
+# Outputs lines of "kind|path|detail" for any active autologin configuration found on the system.
+detect_autologin() {
+    local f
+    for f in /etc/systemd/system/getty@tty1.service.d/*.conf; do
+        [ -f "$f" ] || continue
+        if grep -qE -- '--autologin[[:space:]]+' "$f" 2>/dev/null; then
+            printf 'getty|%s|TTY1 autologin in %s\n' "$f" "$f"
+        fi
+    done
+    if [ -f /etc/greetd/config.toml ] && grep -qE '^[[:space:]]*\[initial_session\]' /etc/greetd/config.toml 2>/dev/null; then
+        printf 'greetd|/etc/greetd/config.toml|greetd [initial_session] autologin in /etc/greetd/config.toml\n'
+    fi
+    for f in /etc/sddm.conf /etc/sddm.conf.d/*.conf; do
+        [ -f "$f" ] || continue
+        if awk '/^\[Autologin\]/{in_sec=1; next} /^\[/{in_sec=0} in_sec && /^[[:space:]]*User[[:space:]]*=[^[:space:]#]+/{found=1} END{exit !found}' "$f" 2>/dev/null; then
+            printf 'sddm|%s|SDDM [Autologin] in %s\n' "$f" "$f"
+        fi
+    done
+    if [ -f /etc/gdm/custom.conf ] && grep -qiE '^[[:space:]]*AutomaticLoginEnable[[:space:]]*=[[:space:]]*True' /etc/gdm/custom.conf 2>/dev/null; then
+        printf 'gdm|/etc/gdm/custom.conf|GDM AutomaticLogin in /etc/gdm/custom.conf\n'
+    fi
+    if [ -f /etc/lightdm/lightdm.conf ] && grep -qE '^[[:space:]]*autologin-user[[:space:]]*=[^[:space:]#]+' /etc/lightdm/lightdm.conf 2>/dev/null; then
+        printf 'lightdm|/etc/lightdm/lightdm.conf|LightDM autologin-user in /etc/lightdm/lightdm.conf\n'
+    fi
+    return 0
+}
+
+disable_autologin_entries() {
+    local entries="$1" s="" kind path detail changed=0
+    [ -n "$entries" ] || return 0
+    [ "$(id -u)" -ne 0 ] && s="${SUDO:-sudo}"
+    while IFS='|' read -r kind path detail; do
+        [ -n "$kind" ] || continue
+        case "$kind" in
+            getty)
+                if $s mv -f "$path" "$path.macshell-disabled" 2>/dev/null; then
+                    ok "disabled TTY1 autologin ($path -> $path.macshell-disabled)"
+                    changed=1
+                else
+                    warn "could not disable $path (run: sudo mv '$path' '$path.macshell-disabled' && sudo systemctl daemon-reload)"
+                fi
+                ;;
+            greetd)
+                if grep -qE '^[[:space:]]*\[default_session\]' "$path" 2>/dev/null && have python3; then
+                    $s cp -pn "$path" "$path.macshell-backup" 2>/dev/null || true
+                    if $s python3 - "$path" <<'PY'
+import re, sys
+p = sys.argv[1]
+txt = open(p, encoding="utf-8").read()
+out = []
+in_init = False
+for line in txt.splitlines(True):
+    if re.match(r'^\s*\[initial_session\]\s*(?:#.*)?$', line):
+        in_init = True
+        out.append("# " + line)
+        continue
+    if in_init:
+        if re.match(r'^\s*\[', line):
+            in_init = False
+            out.append(line)
+        else:
+            out.append("# " + line if not line.lstrip().startswith("#") else line)
+        continue
+    out.append(line)
+open(p, "w", encoding="utf-8").write("".join(out))
+PY
+                    then
+                        ok "disabled greetd [initial_session] autologin in $path"
+                    else
+                        warn "could not edit $path; remove [initial_session] manually to restore login prompt"
+                    fi
+                else
+                    warn "greetd has [initial_session] without [default_session] in $path; configure a greeter (e.g. tuigreet) or enable MacLock on boot"
+                fi
+                ;;
+            sddm)
+                $s cp -pn "$path" "$path.macshell-backup" 2>/dev/null || true
+                if $s sed -i '/^\[Autologin\]/,/^\[/{s/^\([[:space:]]*User[[:space:]]*=.*\)/# \1/}' "$path" 2>/dev/null; then
+                    ok "disabled SDDM autologin in $path"
+                else
+                    warn "could not disable SDDM autologin in $path"
+                fi
+                ;;
+            gdm)
+                $s cp -pn "$path" "$path.macshell-backup" 2>/dev/null || true
+                if $s sed -i 's/^[[:space:]]*AutomaticLoginEnable[[:space:]]*=.*/AutomaticLoginEnable=False/' "$path" 2>/dev/null; then
+                    ok "disabled GDM autologin in $path"
+                else
+                    warn "could not disable GDM autologin in $path"
+                fi
+                ;;
+            lightdm)
+                $s cp -pn "$path" "$path.macshell-backup" 2>/dev/null || true
+                if $s sed -i 's/^\([[:space:]]*autologin-user[[:space:]]*=.*\)/# \1/' "$path" 2>/dev/null; then
+                    ok "disabled LightDM autologin in $path"
+                else
+                    warn "could not disable LightDM autologin in $path"
+                fi
+                ;;
+        esac
+    done <<<"$entries"
+    if [ "$changed" = 1 ] && have systemctl; then
+        $s systemctl daemon-reload 2>/dev/null || true
+    fi
+    return 0
+}
+
+set_lock_on_boot() {
+    local val="$1"
+    mkdir -p "$CONFIG_HOME/maclock"
+    printf '%s\n' "$val" > "$CONFIG_HOME/maclock/lock-on-boot"
+}
+
+setup_boot_lock() {
+    local auto_entries="" kind path detail
+    auto_entries=$(detect_autologin || true)
+
+    if [ "$LOCK_ON_BOOT" = no ]; then
+        set_lock_on_boot 0
+        ok "MacLock boot-lock disabled ($CONFIG_HOME/maclock/lock-on-boot)"
+    elif [ "$LOCK_ON_BOOT" = yes ]; then
+        if [ -f "$LOCK_DEST/shell.qml" ] && [ -e /etc/pam.d/hyprlock ]; then
+            set_lock_on_boot 1
+            ok "MacLock boot-lock enabled (Hyprland will lock immediately on startup)"
+        else
+            warn "cannot enable MacLock boot-lock: MacLock or /etc/pam.d/hyprlock is missing"
+        fi
+    fi
+
+    if [ "$DISABLE_AUTOLOGIN" = 1 ] && [ -n "$auto_entries" ]; then
+        step "Login security"
+        disable_autologin_entries "$auto_entries"
+        auto_entries=$(detect_autologin || true)
+    fi
+
+    [ -n "$auto_entries" ] || return 0
+
+    step "Login & lock screen check"
+    while IFS='|' read -r kind path detail; do
+        [ -n "$detail" ] && warn "autologin detected: $detail (skips password login on boot)"
+    done <<<"$auto_entries"
+
+    if [ "$ASSUME_YES" != 1 ]; then
+        if confirm "Disable autologin so Arch asks for your password before entering the desktop?" y; then
+            disable_autologin_entries "$auto_entries"
+            return 0
+        fi
+    fi
+
+    # Autologin remains active: engage MacLock on Hyprland startup so boot never drops into an unlocked desktop
+    if [ "$LOCK_ON_BOOT" != no ] && [ -f "$LOCK_DEST/shell.qml" ] && [ -e /etc/pam.d/hyprlock ]; then
+        if [ "$ASSUME_YES" = 1 ] || confirm "Keep autologin and lock immediately on boot with MacLock?" y; then
+            set_lock_on_boot 1
+            ok "enabled MacLock on boot ($CONFIG_HOME/maclock/lock-on-boot): Hyprland will lock behind MacLock at every boot"
+            say "  ${D}(To restore the TTY/DM password prompt instead, run: macshell-install --disable-autologin)${N}"
+        fi
+    elif [ ! -e /etc/pam.d/hyprlock ]; then
+        warn "autologin is active and /etc/pam.d/hyprlock is missing: install hyprlock or disable autologin so boot isn't unlocked"
+    fi
     return 0
 }
 
@@ -1944,7 +2392,7 @@ gui_possible() {
 maybe_offer_gui() {
     [ -z "$GUI" ] && [ "$GUI_ASKED" != 1 ] || return 0
     [ "$ASSUME_YES" != 1 ] && [ "$MODE_FLAG" != 1 ] || return 0
-    [ -r /dev/tty ] && [ -w /dev/tty ] || return 0
+    has_tty || return 0
     gui_possible || return 0
     detect_pm; [ "$PM" = pacman ] || return 0
     GUI_ASKED=1
@@ -2087,6 +2535,8 @@ fi
 
 enable_services
 add_autostart
+setup_shell_autostart
+setup_boot_lock
 [ "$LOW_POWER" = 1 ] && apply_low_power
 case "$AUTO_UPDATE" in
     yes) setup_auto_update ;;
@@ -2112,5 +2562,12 @@ elif [ "$NO_START" = 1 ]; then
 elif [ -n "${WAYLAND_DISPLAY:-}" ]; then
     if confirm "Start MacShell now?" y; then start_and_verify || true; fi
 else
-    say "  Not inside a Wayland session: log in to Hyprland and MacShell starts by itself."
+    cur_tty=$(tty 2>/dev/null || true)
+    if [ -z "${SSH_CONNECTION:-}" ] && [[ "$cur_tty" == /dev/tty[0-9]* ]] && { have start-hyprland || have Hyprland; }; then
+        if confirm "Start Hyprland (with MacShell) now?" y; then
+            cleanup
+            if have start-hyprland; then exec start-hyprland; else exec Hyprland; fi
+        fi
+    fi
+    say "  Not inside a Wayland session: log in to Hyprland (or reboot) and MacShell starts automatically."
 fi

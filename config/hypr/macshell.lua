@@ -2,11 +2,19 @@
 -- autostart (remove other bars / docks / notification daemons first).
 -- install.sh adds this for you; macshell-start waits for the compositor and restarts the shell if it crashes.
 hl.on("hyprland.start", function()
+    hl.exec_cmd("dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE XDG_SESSION_DESKTOP HYPRLAND_INSTANCE_SIGNATURE")
     hl.exec_cmd("awww-daemon")
+    -- Lock immediately on boot when MacLock boot-locking is enabled (e.g. with autologin).
+    hl.exec_cmd("sh ~/.config/quickshell/MacLock/lock-on-boot.sh")
     -- Install/update Hypridle's before_sleep_cmd hook (lid close is covered when it suspends).
     hl.exec_cmd("sh ~/.config/quickshell/MacLock/enable-sleep-lock.sh")
-    hl.exec_cmd("systemctl --user start macshell.service || sh ~/.local/bin/macshell-start")
+    hl.exec_cmd("sh ~/.local/bin/macshell-start")
 end)
+pcall(hl.config, {
+    misc = {
+        allow_session_lock_restore = true,
+    },
+})
 -- The Settings window floats and centres itself: the shell registers its own window rule at start-up, so this file needs none.
 
 -- keybinds (the name after -c is the config folder name, case-sensitive)

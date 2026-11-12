@@ -279,6 +279,10 @@ This pulls upstream changes, cleanly 3-way merges them on top of your custom fea
 | `--low-power` | Settings for older computers: no live window capture, no magnification, plain blur, no real-time glass. |
 | `--no-services` | Don't enable system services (bluetooth, NetworkManager, power-profiles-daemon, PipeWire). |
 | `--no-autostart` | Don't touch the Hyprland config. |
+| `--no-tty-autostart` | Don't configure `fish` / `bash` / `zsh` to auto-start Hyprland on TTY1 login. |
+| `--lock-on-boot` / `--no-lock-on-boot` | Enable / disable locking immediately with MacLock when Hyprland starts. |
+| `--disable-autologin` | Disable detected `getty@tty1` / DM autologin so boot asks for your login password. |
+| `--no-start` | Finish installation without launching Hyprland or MacShell at the end. |
 | `--no-rules` | Don't add the Liquid Glass layer rules to the Hyprland config. |
 | `--channel release\|main` | `release` (default): latest release, or the newest commit if there are none. `main`: always the newest commit. |
 | `--no-lock` | Install MacShell only, without MacLock. |

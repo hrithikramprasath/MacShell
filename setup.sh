@@ -5,8 +5,8 @@
 # ==============================================================================
 set -euo pipefail
 
-# If piped via `curl ... | bash`, re-attach stdin to the active terminal
-if [ ! -t 0 ] && [ -e /dev/tty ]; then
+# If piped via `curl ... | bash`, re-attach stdin to the active terminal when a controlling tty exists
+if [ ! -t 0 ] && { true < /dev/tty; } 2>/dev/null; then
     exec < /dev/tty
 fi
 
@@ -61,16 +61,19 @@ fi
 # 2. Arch Linux Native Dependencies
 log_step "Installing Arch Linux official dependencies (pacman)..."
 ARCH_PKGS=(
-    git base-devel hyprland hypridle
-    pipewire wireplumber pipewire-pulse pipewire-alsa libmysofa
+    git base-devel hyprland hypridle hyprlock hyprpicker hyprsunset
+    pipewire wireplumber pipewire-pulse pipewire-alsa libmysofa upower
     bluez bluez-utils usb_modeswitch networkmanager wireless-regdb iw
     python python-pip playerctl brightnessctl ddcutil libnotify
-    grim slurp wf-recorder wl-clipboard
+    grim slurp wf-recorder wl-clipboard cliphist ffmpeg zenity fastfetch rsync wtype
     socat jq inotify-tools imagemagick
-    nautilus kitty papirus-icon-theme
-    qt6-base qt6-declarative qt6-multimedia qt6-shadertools qt6-wayland qt6-svg
+    nautilus kitty papirus-icon-theme noto-fonts noto-fonts-emoji
+    xdg-desktop-portal-hyprland xdg-utils polkit mesa
+    qt6-base qt6-declarative qt6-multimedia qt6-multimedia-ffmpeg qt6-shadertools qt6-wayland qt6-svg
 )
 sudo pacman -S --needed --noconfirm "${ARCH_PKGS[@]}"
+sudo pacman -S --needed --noconfirm inter-font >/dev/null 2>&1 || sudo pacman -S --needed --noconfirm ttf-inter >/dev/null 2>&1 || true
+have fc-cache && fc-cache -f >/dev/null 2>&1 || true
 log_ok "Official repository packages installed"
 
 # Ensure Bluetooth daemon is enabled and running
@@ -150,27 +153,40 @@ export MACSHELL_REPO="hrithikramprasath/MacShell"
 export MACSHELL_BRANCH="main"
 export MACSHELL_CHANNEL="main"
 
-bash "$REPO_DIR/install.sh" --yes --local --channel main --no-deps
+bash "$REPO_DIR/install.sh" --yes --local --channel main --no-deps --no-start
 
 # 6. Configure Environment & Lock Screen Settings
 log_step "Configuring styles, icons, and lockscreen presets..."
 mkdir -p "${HOME}/.config/macshell"
-cat > "${HOME}/.config/macshell/env" << 'EOF'
+if [ ! -f "${HOME}/.config/macshell/env" ]; then
+    cat > "${HOME}/.config/macshell/env" << 'EOF'
 # MacShell Environment Configuration
 export MACSHELL_REPO=hrithikramprasath/MacShell
 export MACSHELL_BRANCH=main
 export MACSHELL_CHANNEL=main
 export QS_ICON_THEME=Papirus-Dark
 EOF
+else
+    for line in \
+        'export MACSHELL_REPO=hrithikramprasath/MacShell' \
+        'export MACSHELL_BRANCH=main' \
+        'export MACSHELL_CHANNEL=main'; do
+        key="${line%%=*}"
+        grep -qE "^[[:space:]]*(export[[:space:]]+)?${key#export }=" "${HOME}/.config/macshell/env" 2>/dev/null \
+            || printf '%s\n' "$line" >> "${HOME}/.config/macshell/env"
+    done
+fi
 
 # Lockscreen settings: mediaSlot bottom (under password/avatar)
 mkdir -p "${HOME}/.config/maclock"
-cat > "${HOME}/.config/maclock/settings.json" << 'EOF'
+if [ ! -f "${HOME}/.config/maclock/settings.json" ]; then
+    cat > "${HOME}/.config/maclock/settings.json" << 'EOF'
 {
   "mediaSlot": "bottom"
 }
 EOF
-log_ok "Configured MacLock settings (mediaSlot: bottom)"
+    log_ok "Configured MacLock settings (mediaSlot: bottom)"
+fi
 
 # Configure Hypridle with MacLock IPC
 mkdir -p "${HOME}/.config/hypr"
@@ -217,7 +233,7 @@ for tool in mac-discord-ctl mac-earbuds-ctl mac-media-ctl mac-shot-full mac-shot
     [ -f "$REPO_DIR/MacShell/assets/$tool" ] && install -m 755 "$REPO_DIR/MacShell/assets/$tool" "${HOME}/.local/bin/$tool"
 done
 [ -f "$REPO_DIR/bin/macshell-sync-upstream" ] && install -m 755 "$REPO_DIR/bin/macshell-sync-upstream" "${HOME}/.local/bin/macshell-sync-upstream"
-[ -f "$REPO_DIR/MacShell/assets/spatial-sofa.conf" ] && install -m 644 "$REPO_DIR/MacShell/assets/spatial-sofa.conf" "${HOME}/.config/macshell/spatial-sofa.conf"
+[ -f "$REPO_DIR/MacShell/assets/spatial-sofa.conf" ] && [ ! -f "${HOME}/.config/macshell/spatial-sofa.conf" ] && install -m 644 "$REPO_DIR/MacShell/assets/spatial-sofa.conf" "${HOME}/.config/macshell/spatial-sofa.conf"
 [ -f "$REPO_DIR/MacShell/assets/macshell-earbuds-sync.service" ] && install -m 644 "$REPO_DIR/MacShell/assets/macshell-earbuds-sync.service" "${HOME}/.config/systemd/user/macshell-earbuds-sync.service"
 [ -f "$REPO_DIR/config/systemd/macshell.service" ] && install -m 644 "$REPO_DIR/config/systemd/macshell.service" "${HOME}/.config/systemd/user/macshell.service"
 log_ok "Installed helper tools and utilities into ~/.local/bin"
@@ -232,24 +248,31 @@ log_step "Enabling automated services and timers..."
 systemctl --user daemon-reload 2>/dev/null || true
 systemctl --user enable --now macshell-update.timer 2>/dev/null || true
 systemctl --user enable --now macshell-earbuds-sync.service 2>/dev/null || true
-systemctl --user enable --now macshell.service 2>/dev/null || true
+systemctl --user enable macshell.service 2>/dev/null || true
+if systemctl --user show-environment 2>/dev/null | grep -q '^WAYLAND_DISPLAY='; then
+    systemctl --user restart macshell.service 2>/dev/null || true
+fi
 log_ok "Services and timers active"
 
-# 9. Reload Hyprland and Start Shell
+# 9. Reload Hyprland and Start Shell (if already inside Wayland)
 log_step "Finalizing and starting session..."
-if have hyprctl && [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then
-    hyprctl reload >/dev/null 2>&1 || true
-    log_ok "Hyprland reloaded"
+IN_WAYLAND=0
+if [ -n "${WAYLAND_DISPLAY:-}" ] || [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then
+    IN_WAYLAND=1
+    if have hyprctl && [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then
+        hyprctl reload >/dev/null 2>&1 || true
+        log_ok "Hyprland reloaded"
+    fi
+    if pgrep -u "$(id -u)" -f '(^|/)(qs|quickshell)( .*)? (-c|--config) MacShell( |$)' >/dev/null 2>&1; then
+        log_info "Reloading active QuickShell session..."
+        pkill -u "$(id -u)" -f '(^|/)(qs|quickshell)( .*)? (-c|--config) MacShell( |$)' 2>/dev/null || true
+        sleep 0.5
+    fi
+    sh "${HOME}/.local/bin/macshell-start" >/dev/null 2>&1 &
+    log_ok "MacShell started"
+else
+    log_ok "Configuration complete (outside Wayland session)"
 fi
-
-# Restart QuickShell MacShell cleanly
-if pgrep -f "qs -c MacShell" >/dev/null 2>&1; then
-    log_info "Reloading active QuickShell session..."
-    killall qs 2>/dev/null || true
-    sleep 0.5
-fi
-sh "${HOME}/.local/bin/macshell-start" >/dev/null 2>&1 &
-log_ok "MacShell started"
 
 echo ""
 printf "%s%s========================================================================%s\n" "$BOLD" "$GREEN" "$RESET"
@@ -276,3 +299,11 @@ echo "       ${CYAN}macshell-sync-upstream${RESET}"
 echo "     This fetches 0-ss/MacShell, cleanly 3-way merges their new features on top of"
 echo "     your custom Hub, Bento, and Equalizer, and deploys it live with zero conflicts!"
 echo ""
+
+if [ "$IN_WAYLAND" = 0 ]; then
+    cur_tty=$(tty 2>/dev/null || true)
+    if [ -z "${SSH_CONNECTION:-}" ] && [[ "$cur_tty" == /dev/tty[0-9]* ]] && { have start-hyprland || have Hyprland; }; then
+        log_step "Launching Hyprland with MacShell..."
+        if have start-hyprland; then exec start-hyprland; else exec Hyprland; fi
+    fi
+fi
