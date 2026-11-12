@@ -44,8 +44,10 @@ done
 [ -f "$REPO_DIR/MacShell/assets/macshell-earbuds-sync.service" ] && install -m 644 "$REPO_DIR/MacShell/assets/macshell-earbuds-sync.service" "$HOME/.config/systemd/user/macshell-earbuds-sync.service" && systemctl --user daemon-reload 2>/dev/null && systemctl --user enable --now macshell-earbuds-sync.service 2>/dev/null || true
 if [ -f "$REPO_DIR/config/systemd/macshell.service" ]; then
     install -m 644 "$REPO_DIR/config/systemd/macshell.service" "$HOME/.config/systemd/user/macshell.service"
+    rm -f "$HOME/.config/systemd/user/default.target.wants/macshell.service" 2>/dev/null || true
+    systemctl --user reset-failed macshell.service 2>/dev/null || true
     systemctl --user daemon-reload 2>/dev/null || true
-    systemctl --user enable macshell.service 2>/dev/null || true
+    systemctl --user reenable macshell.service 2>/dev/null || systemctl --user enable macshell.service 2>/dev/null || true
     if systemctl --user show-environment 2>/dev/null | grep -q '^WAYLAND_DISPLAY='; then
         systemctl --user restart macshell.service 2>/dev/null || true
     fi

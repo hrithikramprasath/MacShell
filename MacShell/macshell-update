@@ -31,7 +31,7 @@ INSTALLED="$LOCAL_VERSION"
 [ -z "$INSTALLED" ] && INSTALLED="$(state_get installed)"
 INSTALLED="${INSTALLED:-unknown}"
 
-JSON=0 YES=0 FORCE=0 REF=""
+JSON=0 YES=0 FORCE=0 NOTIFY=0 REF=""
 
 gh_api() { curl -fsSL --max-time 15 ${GITHUB_TOKEN:+-H "Authorization: Bearer $GITHUB_TOKEN"} -H "Accept: $1" "$2"; }
 latest_release() {
@@ -45,7 +45,10 @@ is_ver() { [[ "$(norm "$1")" =~ ^[0-9]+(\.[0-9]+)*([-+.][0-9A-Za-z.-]+)?$ ]]; }
 # returns 0 if $1 is the same as or newer than $2 (numeric dotted compare)
 ver_ge() { [ "$(printf '%s\n%s\n' "$(norm "$2")" "$(norm "$1")" | sort -V | tail -n1)" = "$(norm "$1")" ]; }
 branch_version() {
-    gh_api text/plain "https://raw.githubusercontent.com/$REPO/$BRANCH/VERSION" 2>/dev/null | head -n1 | tr -d '[:space:]'
+    local v=""
+    v=$(gh_api text/plain "https://raw.githubusercontent.com/$REPO/$BRANCH/MacShell/VERSION" 2>/dev/null | head -n1 | tr -d '[:space:]')
+    [ -n "$v" ] || v=$(gh_api text/plain "https://raw.githubusercontent.com/$REPO/$BRANCH/VERSION" 2>/dev/null | head -n1 | tr -d '[:space:]')
+    printf '%s' "$v"
 }
 
 LATEST="" LATEST_TYPE=""
@@ -124,8 +127,18 @@ cmd_update() {
     curl -fsSL --max-time 180 "https://github.com/$REPO/archive/$id.tar.gz" | tar -xz --strip-components=1 -C "$tmp/src" \
         || { echo "Download failed." >&2; return 1; }
     if [ ! -f "$tmp/src/install.sh" ]; then echo "install.sh is missing in that version." >&2; return 1; fi
-    MACSHELL_REPO="$REPO" MACSHELL_BRANCH="$BRANCH" MACSHELL_DEST="$DEST" \
-        bash "$tmp/src/install.sh" --update --yes --from-dir "$tmp/src" --resolved-id "$id" --resolved-type "$type"
+    if MACSHELL_REPO="$REPO" MACSHELL_BRANCH="$BRANCH" MACSHELL_CHANNEL="${CHANNEL_PREF:-}" MACSHELL_DEST="$DEST" \
+        bash "$tmp/src/install.sh" --update --yes --from-dir "$tmp/src" --resolved-id "$id" --resolved-type "$type"; then
+        if [ "$NOTIFY" = 1 ] && command -v notify-send >/dev/null 2>&1; then
+            notify-send -a "MacShell" "MacShell updated" "Updated to $(short "$id")" >/dev/null 2>&1 || true
+        fi
+    else
+        local rc=$?
+        if [ "$NOTIFY" = 1 ] && command -v notify-send >/dev/null 2>&1; then
+            notify-send -a "MacShell" -u critical "MacShell update failed" "Could not install $(short "$id")" >/dev/null 2>&1 || true
+        fi
+        return "$rc"
+    fi
 }
 
 cmd_rollback() {
@@ -159,6 +172,7 @@ while [ $# -gt 0 ]; do
         --json) JSON=1 ;;
         -y|--yes) YES=1 ;;
         --force) FORCE=1 ;;
+        --notify) NOTIFY=1 ;;
         --ref) REF="${2:-}"; shift ;;
         -h|--help) cmd=help ;;
         *) echo "unknown option: $1" >&2; exit 2 ;;
