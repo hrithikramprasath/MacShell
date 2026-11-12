@@ -3,6 +3,17 @@
 # Triggered by ~/.config/hypr/macshell.lua on hyprland.start.
 set -u
 
+rt="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+if [ -z "${WAYLAND_DISPLAY:-}" ] && [ -d "$rt" ]; then
+    for sock in "$rt"/wayland-[0-9]*; do
+        case "$sock" in *.lock) continue ;; esac
+        if [ -S "$sock" ]; then
+            WAYLAND_DISPLAY=$(basename "$sock")
+            export WAYLAND_DISPLAY
+            break
+        fi
+    done
+fi
 [ -n "${WAYLAND_DISPLAY:-}" ] || exit 0
 command -v qs >/dev/null 2>&1 || exit 0
 
@@ -36,7 +47,6 @@ if pgrep -u "$(id -u)" -f '(^|/)(qs|quickshell)( .*)? (-c|--config) MacLock( |$)
 fi
 
 # Wait briefly for the Wayland socket to be ready (up to 5 s).
-rt="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 i=0
 while [ "$i" -lt 50 ]; do
     [ -S "$rt/$WAYLAND_DISPLAY" ] && break

@@ -280,7 +280,7 @@ This pulls upstream changes, cleanly 3-way merges them on top of your custom fea
 | `--no-services` | Don't enable system services (bluetooth, NetworkManager, power-profiles-daemon, PipeWire). |
 | `--no-autostart` | Don't touch the Hyprland config. |
 | `--no-tty-autostart` | Don't configure `fish` / `bash` / `zsh` to auto-start Hyprland on TTY1 login. |
-| `--lock-on-boot` / `--no-lock-on-boot` | Enable / disable locking immediately with MacLock when Hyprland starts. |
+| `--lock-on-boot` / `--no-lock-on-boot` | Configure single-login boot (autologin into Hyprland guarded immediately by MacLock) / disable MacLock on boot. |
 | `--disable-autologin` | Disable detected `getty@tty1` / DM autologin so boot asks for your login password. |
 | `--no-start` | Finish installation without launching Hyprland or MacShell at the end. |
 | `--no-rules` | Don't add the Liquid Glass layer rules to the Hyprland config. |

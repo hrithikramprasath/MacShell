@@ -153,7 +153,7 @@ export MACSHELL_REPO="hrithikramprasath/MacShell"
 export MACSHELL_BRANCH="main"
 export MACSHELL_CHANNEL="main"
 
-bash "$REPO_DIR/install.sh" --yes --local --channel main --no-deps --no-start
+bash "$REPO_DIR/install.sh" --yes --local --channel main --no-deps --no-start --lock-on-boot --auto-update
 
 # 6. Configure Environment & Lock Screen Settings
 log_step "Configuring styles, icons, and lockscreen presets..."
@@ -226,6 +226,14 @@ elif [ -f "$LUA_CONF" ]; then
     fi
 fi
 
+# Ensure ~/.config/kitty/kitty.conf has Liquid Glass config if missing
+KITTY_CONF="${HOME}/.config/kitty/kitty.conf"
+if [ ! -f "$KITTY_CONF" ] && [ -f "$REPO_DIR/config/kitty/kitty.conf" ]; then
+    mkdir -p "${HOME}/.config/kitty"
+    install -m 644 "$REPO_DIR/config/kitty/kitty.conf" "$KITTY_CONF"
+    log_ok "Installed ~/.config/kitty/kitty.conf"
+fi
+
 # 7. Install Helper Tools & Upstream Sync Utility
 log_step "Installing helper tools into ~/.local/bin..."
 mkdir -p "${HOME}/.local/bin" "${HOME}/.config/macshell" "${HOME}/.config/systemd/user"
@@ -245,10 +253,12 @@ fi
 
 # 8. Configure Systemd Services & Timers
 log_step "Enabling automated services and timers..."
+rm -f "${HOME}/.config/systemd/user/default.target.wants/macshell.service" 2>/dev/null || true
+systemctl --user reset-failed macshell.service 2>/dev/null || true
 systemctl --user daemon-reload 2>/dev/null || true
 systemctl --user enable --now macshell-update.timer 2>/dev/null || true
 systemctl --user enable --now macshell-earbuds-sync.service 2>/dev/null || true
-systemctl --user enable macshell.service 2>/dev/null || true
+systemctl --user reenable macshell.service 2>/dev/null || systemctl --user enable macshell.service 2>/dev/null || true
 if systemctl --user show-environment 2>/dev/null | grep -q '^WAYLAND_DISPLAY='; then
     systemctl --user restart macshell.service 2>/dev/null || true
 fi
@@ -262,6 +272,9 @@ if [ -n "${WAYLAND_DISPLAY:-}" ] || [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; t
     if have hyprctl && [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then
         hyprctl reload >/dev/null 2>&1 || true
         log_ok "Hyprland reloaded"
+    fi
+    if pgrep -u "$(id -u)" -x kitty >/dev/null 2>&1; then
+        pkill -USR1 -u "$(id -u)" -x kitty 2>/dev/null || true
     fi
     if pgrep -u "$(id -u)" -f '(^|/)(qs|quickshell)( .*)? (-c|--config) MacShell( |$)' >/dev/null 2>&1; then
         log_info "Reloading active QuickShell session..."
