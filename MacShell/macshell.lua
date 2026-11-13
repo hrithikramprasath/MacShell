@@ -3,6 +3,7 @@
 -- install.sh adds this for you; macshell-start waits for the compositor and restarts the shell if it crashes.
 hl.on("hyprland.start", function()
     hl.exec_cmd("dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE XDG_SESSION_DESKTOP HYPRLAND_INSTANCE_SIGNATURE")
+    hl.exec_cmd("sh -c 'systemctl --user cat hyprpolkitagent.service >/dev/null 2>&1 && ! pgrep -u $(id -u) -f \"/[p]olkit-[^ ]*agent|[p]olicykit-agent|[p]antheon-agent-polkit|/[x]fce-polkit|(^|/| )[h]yprpolkitagent( |$)\" >/dev/null 2>&1 && systemctl --user start hyprpolkitagent.service >/dev/null 2>&1 || true'")
     hl.exec_cmd("awww-daemon")
     -- Lock immediately on boot when MacLock boot-locking is enabled (e.g. with autologin).
     hl.exec_cmd("sh ~/.config/quickshell/MacLock/lock-on-boot.sh")
