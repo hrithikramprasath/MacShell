@@ -62,7 +62,7 @@ fi
 log_step "Installing Arch Linux official dependencies (pacman)..."
 ARCH_PKGS=(
     git base-devel curl tar util-linux
-    hyprland quickshell awww hypridle hyprlock hyprpicker hyprsunset
+    hypridle hyprlock hyprpicker hyprsunset
     pipewire pipewire-audio wireplumber pipewire-pulse pipewire-alsa libmysofa upower
     bluez bluez-utils usb_modeswitch networkmanager wireless-regdb iw
     python python-numpy playerctl power-profiles-daemon brightnessctl ddcutil libnotify
@@ -72,6 +72,11 @@ ARCH_PKGS=(
     xdg-desktop-portal-hyprland xdg-user-dirs xdg-utils polkit mesa
     qt6-base qt6-declarative qt6-multimedia qt6-multimedia-ffmpeg qt6-shadertools qt6-wayland qt6-svg
 )
+# Respect existing -git AUR providers (e.g. quickshell-git, awww-git, hyprland-git) so pacman --noconfirm never aborts on conflicts
+for _p in hyprland quickshell awww; do
+    pacman -T "$_p" >/dev/null 2>&1 || ARCH_PKGS+=("$_p")
+done
+unset _p
 sudo pacman -S --needed --noconfirm "${ARCH_PKGS[@]}"
 sudo pacman -S --needed --noconfirm inter-font >/dev/null 2>&1 || sudo pacman -S --needed --noconfirm ttf-inter >/dev/null 2>&1 || true
 have fc-cache && fc-cache -f >/dev/null 2>&1 || true
