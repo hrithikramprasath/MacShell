@@ -63,26 +63,48 @@ log_step "Installing Arch Linux official dependencies (pacman)..."
 ARCH_PKGS=(
     git base-devel curl tar util-linux
     hypridle hyprlock hyprpicker hyprsunset
-    pipewire pipewire-audio wireplumber pipewire-pulse pipewire-alsa libmysofa upower
+    pipewire pipewire-audio wireplumber pipewire-pulse pipewire-alsa gst-plugin-pipewire libmysofa upower
     bluez bluez-utils usb_modeswitch networkmanager wireless-regdb iw
     python python-numpy playerctl power-profiles-daemon brightnessctl ddcutil libnotify
     grim slurp wf-recorder wl-clipboard cliphist ffmpeg zenity fastfetch rsync wtype
     socat jq inotify-tools imagemagick pciutils
-    nautilus kitty papirus-icon-theme noto-fonts noto-fonts-emoji
-    xdg-desktop-portal-hyprland xdg-user-dirs xdg-utils polkit mesa
+    nautilus kitty qalculate-gtk papirus-icon-theme noto-fonts noto-fonts-emoji unicode-emoji
+    xdg-desktop-portal-hyprland xdg-desktop-portal-gtk xdg-user-dirs xdg-utils polkit hyprpolkitagent gnome-keyring mesa
     qt6-base qt6-declarative qt6-multimedia qt6-multimedia-ffmpeg qt6-shadertools qt6-wayland qt6-svg
 )
-# Respect existing -git AUR providers (e.g. quickshell-git, awww-git, hyprland-git) so pacman --noconfirm never aborts on conflicts
+# Respect existing -git / alternative providers (quickshell-git, awww-git, hyprland-git, jack2, other DMs) so pacman --noconfirm never aborts on conflicts
 for _p in hyprland quickshell awww; do
     pacman -T "$_p" >/dev/null 2>&1 || ARCH_PKGS+=("$_p")
 done
 unset _p
+if ! pacman -T jack >/dev/null 2>&1 && ! pacman -Qq pipewire-jack-client >/dev/null 2>&1; then
+    ARCH_PKGS+=(pipewire-jack)
+fi
+_has_other_dm=0
+for _dm in gdm lightdm greetd ly lxdm; do
+    if systemctl is-enabled --quiet "${_dm}.service" 2>/dev/null \
+       || systemctl is-active --quiet "${_dm}.service" 2>/dev/null; then
+        _has_other_dm=1
+        break
+    fi
+done
+unset _dm
+if [ "$_has_other_dm" -eq 0 ] && [ -L /etc/systemd/system/display-manager.service ]; then
+    _dm_target=$(basename "$(readlink -f /etc/systemd/system/display-manager.service 2>/dev/null || true)" 2>/dev/null || true)
+    if [ -n "$_dm_target" ] && [ "$_dm_target" != "sddm.service" ]; then
+        _has_other_dm=1
+    fi
+    unset _dm_target
+fi
+if [ "$_has_other_dm" -eq 0 ]; then
+    pacman -T sddm >/dev/null 2>&1 || ARCH_PKGS+=(sddm)
+fi
 sudo pacman -S --needed --noconfirm "${ARCH_PKGS[@]}"
 sudo pacman -S --needed --noconfirm inter-font >/dev/null 2>&1 || sudo pacman -S --needed --noconfirm ttf-inter >/dev/null 2>&1 || true
 have fc-cache && fc-cache -f >/dev/null 2>&1 || true
 log_ok "Official repository packages installed"
 
-# Ensure Bluetooth and power profile services are enabled and running
+# Ensure Bluetooth, power profile, and display manager services are enabled safely
 if have systemctl; then
     sudo systemctl enable --now bluetooth.service 2>/dev/null || true
     log_ok "Bluetooth service enabled"
@@ -94,7 +116,15 @@ if have systemctl; then
         sudo systemctl enable --now power-profiles-daemon.service 2>/dev/null || true
         log_ok "Power profiles service enabled"
     fi
+    if [ "${_has_other_dm:-0}" -eq 0 ] \
+       && systemctl cat sddm.service >/dev/null 2>&1 \
+       && ! systemctl is-enabled --quiet sddm.service 2>/dev/null; then
+        # Enable for next boot only (--now would disrupt an active session)
+        sudo systemctl enable sddm.service 2>/dev/null || true
+        log_ok "SDDM display manager enabled"
+    fi
 fi
+unset _has_other_dm
 
 # Apply wireless regulatory domain from system locale if unconfigured
 if have iw; then
@@ -278,6 +308,31 @@ systemctl --user reset-failed macshell.service 2>/dev/null || true
 systemctl --user daemon-reload 2>/dev/null || true
 systemctl --user enable --now macshell-update.timer 2>/dev/null || true
 systemctl --user enable --now macshell-earbuds-sync.service 2>/dev/null || true
+if systemctl --user cat gnome-keyring-daemon.socket >/dev/null 2>&1; then
+    systemctl --user enable --now gnome-keyring-daemon.socket 2>/dev/null || true
+fi
+if systemctl --user cat hyprpolkitagent.service >/dev/null 2>&1; then
+    _other_polkit=0
+    for _pa_unit in plasma-polkit-agent.service polkit-gnome-authentication-agent-1.service; do
+        if systemctl --user is-enabled --quiet "$_pa_unit" 2>/dev/null \
+           || systemctl --user is-active --quiet "$_pa_unit" 2>/dev/null; then
+            _other_polkit=1
+            break
+        fi
+    done
+    if [ "$_other_polkit" -eq 0 ] \
+       && ! have gnome-shell && ! have plasmashell \
+       && ! [ -x /usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1 ] \
+       && ! [ -x /usr/lib/polkit-kde-authentication-agent-1 ] \
+       && ! have lxqt-policykit-agent && ! have xfce-polkit; then
+        systemctl --user enable hyprpolkitagent.service 2>/dev/null || true
+    fi
+    if ( [ -n "${WAYLAND_DISPLAY:-}" ] || systemctl --user show-environment 2>/dev/null | grep -q '^WAYLAND_DISPLAY=' ) \
+       && ! pgrep -u "$(id -u)" -f '/[p]olkit-[^ ]*agent|[p]olicykit-agent|[p]antheon-agent-polkit|/[x]fce-polkit|(^|/| )[h]yprpolkitagent( |$)' >/dev/null 2>&1; then
+        systemctl --user start hyprpolkitagent.service 2>/dev/null || true
+    fi
+    unset _other_polkit _pa_unit
+fi
 systemctl --user reenable macshell.service 2>/dev/null || systemctl --user enable macshell.service 2>/dev/null || true
 if systemctl --user show-environment 2>/dev/null | grep -q '^WAYLAND_DISPLAY='; then
     systemctl --user restart macshell.service 2>/dev/null || true
