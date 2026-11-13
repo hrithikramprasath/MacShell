@@ -157,26 +157,27 @@ and more files...
 
 | Feature | Tool(s) |
 |---|---|
-| Screenshots (Print key) | `grim`, `wl-clipboard` (clipboard copy), `libnotify` (`notify-send`) |
+| Screenshots (Print key) | `grim`, `slurp`, `wl-clipboard` (clipboard copy), `libnotify` (`notify-send`) |
 | Clipboard history + Emoji (Spotlight) | `wl-clipboard`, `cliphist` (the shell starts the `wl-paste --watch cliphist store` watchers itself) |
 | Screen recording | `wf-recorder` |
 | Color picker | `hyprpicker` |
 | Night Shift | `hyprsunset` |
-| Brightness | `brightnessctl` |
+| Brightness | `brightnessctl` (built-in backlight), `ddcutil` (external DDC/CI monitors) |
 | Wi-Fi / VPN / Ethernet | NetworkManager (`nmcli`); fallback editor `nm-connection-editor` or `nmtui` |
 | Bluetooth | `bluez` (`bluetoothctl`) **and the `bluetooth` service running** (`sudo systemctl enable --now bluetooth`; the installer offers to do this), `rfkill` (util-linux) to un-block the adapter |
-| Audio device routing | `wpctl` (WirePlumber) or `pactl` |
+| Audio device routing & UI sounds | `pipewire`, `pipewire-audio` (`pw-play`, `pw-loopback`), `wpctl` (`wireplumber`) or `pactl` (`pipewire-pulse`), `libmysofa` |
 | Privacy indicators | PipeWire (`pw-dump`) |
 | Keep Awake | `systemd-inhibit` |
 | Lock / Sleep / Restart / Shut Down | `loginctl`, `systemctl` (UWSM sessions are stopped via `uwsm`) |
 | Trash watching / emptying | `inotify-tools` (`inotifywait`), `ktrash6`/`ktrash5`, or a file manager (`dolphin`, `nautilus`, `thunar`, `nemo`, `pcmanfm-qt`) |
 | Folder pickers in Settings, picking a picture for an Image widget | `zenity`, `kdialog` or `yad` |
-| "About This Linux" | `fastfetch` or `neofetch` |
+| "About This Linux" | `fastfetch` or `neofetch`, `pciutils` (`lspci` for GPU detection) |
 | Do Not Disturb (Focus) | `dunstctl`, `makoctl` or `swaync-client` (only if you keep one of those) |
 | Emoji search keywords | `emoji-test.txt` from the `unicode-emoji` package (otherwise `EmojiData.js` is used) |
 | Setting the wallpaper | `awww` (recommended; its daemon is started for you). Fallbacks: `swww`, Noctalia, `hyprpaper`, `swaybg` — or set a command yourself (see [Wallpaper](#wallpaper)) |
-| Animated (video) wallpapers | `mpvpaper`, `ffmpeg` (thumbnails and previews) |
-| Installer extras | `rsync` (faster file sync), `systemd` (daily automatic updates) |
+| Animated (video) wallpapers | `mpvpaper`, `ffmpeg` (thumbnails and previews), `socat` (pause/resume over IPC) |
+| UI sound synthesis | `python`, `python-numpy` |
+| Installer extras | `rsync` (faster file sync), `xdg-user-dirs` (`xdg-user-dir`), `systemd` (daily automatic updates) |
 | Default apps | terminal `kitty`, file opener `xdg-open` — change `terminal`, `launcher`, `filesCmd`, `clipboardCmd` in `~/.config/macbar/settings.json` |
 
 ### Conflicts
@@ -219,22 +220,24 @@ This pulls upstream changes, cleanly 3-way merges them on top of your custom fea
     
     sudo pacman -S --needed \
       hyprland quickshell hyprlock awww \
-      qt6-base qt6-declarative qt6-wayland qt6-shadertools qt6-svg \
+      qt6-base qt6-declarative qt6-wayland qt6-shadertools qt6-svg qt6-multimedia-ffmpeg \
       grim slurp wl-clipboard wf-recorder cliphist \
-      libnotify brightnessctl \
+      libnotify brightnessctl ddcutil power-profiles-daemon \
       networkmanager wireless-regdb iw bluez bluez-utils usb_modeswitch \
-      inotify-tools \
+      python python-numpy inotify-tools socat pciutils \
       inter-font noto-fonts noto-fonts-emoji \
-      xdg-desktop-portal-hyprland \
+      xdg-desktop-portal-hyprland xdg-user-dirs \
       xdg-utils polkit \
-      pipewire wireplumber pipewire-pulse libmysofa \
+      pipewire pipewire-audio wireplumber pipewire-pulse libmysofa \
       kitty
+    # For animated (video) wallpapers (AUR):
+    yay -S --needed mpvpaper
    ```
    Other distros: install the equivalents. Fedora has a Quickshell COPR; Nix has `pkgs.quickshell`.
    You can skip this: the installer checks every requirement (tools, Qt libraries, fonts, icon theme, portals,
-   `hyprlock`, the optional helpers such as `awww`, `zenity`, `slurp`, `ffmpeg`) and installs the missing ones for you
-   with pacman, dnf or apt, after asking once (`-y` skips the question). Packages that are not in the main
-   repositories, such as `quickshell` or `awww`, come from the AUR (`yay` / `paru`; on Arch the installer can build
+   `hyprlock`, the optional helpers such as `awww`, `zenity`, `slurp`, `ffmpeg`, `python-numpy`, `ddcutil`) and installs the missing ones for you
+   with pacman, dnf or apt, after asking once (`-y` skips the question). Official Arch repositories now provide
+   `quickshell` and `awww`; AUR-only packages such as `mpvpaper` come from the AUR (`yay` / `paru`; on Arch the installer can build
    `yay` for you) or the Fedora COPR. It also enables the `bluetooth` service, which Bluetooth needs.
    `bash install.sh --deps-only` does just this step.
    Hyprland 0.55+ with a Lua config may need a newer package than your distro ships, so check `hyprctl version`.

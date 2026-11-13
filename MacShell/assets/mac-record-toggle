@@ -5,7 +5,7 @@ mkdir -p "$DIR"
 
 # If already recording, stop it cleanly with SIGINT so the MP4 finalizes
 if pgrep -x wf-recorder >/dev/null; then
-    killall -s SIGINT wf-recorder
+    pkill -SIGINT -x wf-recorder
     notify-send -a "Screen Recorder" -i media-playback-stop "Recording Stopping..." "Finalizing and saving video..."
     exit 0
 fi

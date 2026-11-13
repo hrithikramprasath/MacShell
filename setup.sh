@@ -61,14 +61,15 @@ fi
 # 2. Arch Linux Native Dependencies
 log_step "Installing Arch Linux official dependencies (pacman)..."
 ARCH_PKGS=(
-    git base-devel hyprland hypridle hyprlock hyprpicker hyprsunset
-    pipewire wireplumber pipewire-pulse pipewire-alsa libmysofa upower
+    git base-devel curl tar util-linux
+    hyprland quickshell awww hypridle hyprlock hyprpicker hyprsunset
+    pipewire pipewire-audio wireplumber pipewire-pulse pipewire-alsa libmysofa upower
     bluez bluez-utils usb_modeswitch networkmanager wireless-regdb iw
-    python python-pip playerctl brightnessctl ddcutil libnotify
+    python python-numpy playerctl power-profiles-daemon brightnessctl ddcutil libnotify
     grim slurp wf-recorder wl-clipboard cliphist ffmpeg zenity fastfetch rsync wtype
-    socat jq inotify-tools imagemagick
+    socat jq inotify-tools imagemagick pciutils
     nautilus kitty papirus-icon-theme noto-fonts noto-fonts-emoji
-    xdg-desktop-portal-hyprland xdg-utils polkit mesa
+    xdg-desktop-portal-hyprland xdg-user-dirs xdg-utils polkit mesa
     qt6-base qt6-declarative qt6-multimedia qt6-multimedia-ffmpeg qt6-shadertools qt6-wayland qt6-svg
 )
 sudo pacman -S --needed --noconfirm "${ARCH_PKGS[@]}"
@@ -76,10 +77,18 @@ sudo pacman -S --needed --noconfirm inter-font >/dev/null 2>&1 || sudo pacman -S
 have fc-cache && fc-cache -f >/dev/null 2>&1 || true
 log_ok "Official repository packages installed"
 
-# Ensure Bluetooth daemon is enabled and running
+# Ensure Bluetooth and power profile services are enabled and running
 if have systemctl; then
     sudo systemctl enable --now bluetooth.service 2>/dev/null || true
     log_ok "Bluetooth service enabled"
+    if systemctl cat power-profiles-daemon.service >/dev/null 2>&1 \
+       && ! systemctl is-enabled --quiet tlp.service 2>/dev/null \
+       && ! systemctl is-active --quiet tlp.service 2>/dev/null \
+       && ! systemctl is-enabled --quiet auto-cpufreq.service 2>/dev/null \
+       && ! systemctl is-active --quiet auto-cpufreq.service 2>/dev/null; then
+        sudo systemctl enable --now power-profiles-daemon.service 2>/dev/null || true
+        log_ok "Power profiles service enabled"
+    fi
 fi
 
 # Apply wireless regulatory domain from system locale if unconfigured
@@ -94,8 +103,8 @@ if have iw; then
     fi
 fi
 
-# 3. AUR Helper & Quickshell Setup
-log_step "Checking AUR helper and Quickshell..."
+# 3. AUR Helper & AUR Dependencies (mpvpaper + fallback if needed)
+log_step "Checking AUR helper and AUR dependencies..."
 AUR_HELPER=""
 if have yay; then
     AUR_HELPER="yay"
@@ -112,17 +121,23 @@ else
 fi
 
 if ! have qs && ! have quickshell; then
-    log_info "Installing quickshell from AUR ($AUR_HELPER)..."
-    "$AUR_HELPER" -S --needed --noconfirm quickshell-git || "$AUR_HELPER" -S --needed --noconfirm quickshell
+    log_info "Installing quickshell via $AUR_HELPER..."
+    "$AUR_HELPER" -S --needed --noconfirm quickshell || "$AUR_HELPER" -S --needed --noconfirm quickshell-git
     log_ok "quickshell installed"
 else
     log_ok "quickshell is already installed"
 fi
 
-# Optional wallpaper daemon from AUR if neither swww nor awww is found
-if ! have awww && ! have swww && ! have mpvpaper; then
-    log_info "Installing awww wallpaper daemon from AUR..."
-    "$AUR_HELPER" -S --needed --noconfirm awww-git || "$AUR_HELPER" -S --needed --noconfirm swww || true
+if ! have awww && ! have swww; then
+    log_info "Installing awww wallpaper daemon via $AUR_HELPER..."
+    "$AUR_HELPER" -S --needed --noconfirm awww || "$AUR_HELPER" -S --needed --noconfirm awww-git || true
+fi
+
+if ! have mpvpaper; then
+    log_info "Installing mpvpaper (animated video wallpapers) from AUR ($AUR_HELPER)..."
+    "$AUR_HELPER" -S --needed --noconfirm mpvpaper || log_warn "Could not install mpvpaper from AUR (animated wallpapers will be unavailable)"
+else
+    log_ok "mpvpaper is already installed"
 fi
 
 # 4. Clone or Update Fork Repository (~/MacShell)

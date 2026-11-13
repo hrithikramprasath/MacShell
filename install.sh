@@ -366,7 +366,8 @@ REQUIRED=(
     "xdg-open:xdg-utils:opening files and links"
 )
 OPTIONAL=(
-    "pw-play:pipewire:UI sound effects"
+    "pw-dump:pipewire:PipeWire daemon and privacy indicators"
+    "pw-play:pipewire-audio:UI sound effects and Spatial Audio loopback"
     "wpctl:wireplumber:audio device routing"
     "pactl:pipewire-pulse:volume and audio devices (PulseAudio compatibility)"
     "qsb:qt6-shadertools:recompiling the Liquid Glass shader (precompiled .qsb files are shipped)"
@@ -380,6 +381,7 @@ OPTIONAL=(
     "bluetoothctl:bluez-utils:Bluetooth (also needs the bluetooth service, enabled below)"
     "rfkill:util-linux:Bluetooth / Airplane Mode (unblocking the adapter)"
     "brightnessctl:brightnessctl:display brightness"
+    "ddcutil:ddcutil:external monitor brightness (DDC/CI)"
     "playerctl:playerctl:media keys (play / pause / next / previous)"
     "powerprofilesctl:power-profiles-daemon:power profiles / Game Mode"
     "inotifywait:inotify-tools:live wallpaper watching, Trash watching"
@@ -387,6 +389,7 @@ OPTIONAL=(
     "notify-send:libnotify:notifications from scripts, update notices"
     "awww:awww:setting the wallpaper"
     "mpvpaper:mpvpaper:animated (video) wallpapers"
+    "socat:socat:animated wallpaper pause/resume IPC"
     "ffmpeg:ffmpeg:video wallpaper thumbnails and previews"
     "zenity:zenity:file pickers (image widgets, Settings folders)"
     "magick:imagemagick:profile picture conversion"
@@ -399,6 +402,8 @@ OPTIONAL=(
     "wtype:wtype:menu bar keyboard shortcuts in browsers and apps"
     "usb_modeswitch:usb_modeswitch:switching 2-in-1 Wi-Fi and Bluetooth adapters from CD-ROM to active mode"
     "iw:iw:Wi-Fi regulatory domain and channel management"
+    "xdg-user-dir:xdg-user-dirs:standard Desktop / Downloads / Pictures folder paths"
+    "lspci:pciutils:GPU model detection in About This Linux"
 )
 # libraries / fonts / packages without a command to test: arch-package:what-for   (a|b = first one the repositories have)
 LIBS=(
@@ -407,6 +412,7 @@ LIBS=(
     "qt6-svg:SVG app icons"
     "qt6-shadertools:shader tools"
     "qt6-multimedia-ffmpeg|qt6-multimedia:QtMultimedia (video wallpapers; MacShell and MacLock fail to load without it)"
+    "python-numpy:NumPy (UI sound effect generation)"
     "libmysofa:HRTF models for 360 Spatial Audio"
     "bluez:Bluetooth protocol stack and daemon"
     "upower:battery and power status (Quickshell UPower)"
@@ -447,20 +453,20 @@ pkg_for() {
     case "$PM" in
         pacman) printf '%s' "$p" ;;
         dnf) case "$p" in
-                pipewire) echo pipewire-utils ;; pipewire-pulse) echo pipewire-pulseaudio ;;
+                pipewire) echo pipewire ;; pipewire-audio) echo pipewire-utils ;; pipewire-pulse) echo pipewire-pulseaudio ;;
                 qt6-shadertools) echo qt6-qtshadertools ;; qt6-declarative) echo qt6-qtdeclarative ;;
                 "qt6-multimedia-ffmpeg|qt6-multimedia") echo qt6-qtmultimedia ;;
                 qt6-wayland) echo qt6-qtwayland ;; qt6-svg) echo qt6-qtsvg ;; networkmanager) echo NetworkManager ;;
                 bluez-utils) echo bluez ;; "inter-font|ttf-inter") echo rsms-inter-fonts ;;
                 noto-fonts) echo google-noto-sans-fonts ;; noto-fonts-emoji) echo "google-noto-color-emoji-fonts|google-noto-emoji-fonts" ;;
-                imagemagick) echo ImageMagick ;; python) echo python3 ;; awww|mpvpaper|cliphist) echo "$p" ;; *) printf '%s' "${p%%|*}" ;;
+                imagemagick) echo ImageMagick ;; python) echo python3 ;; python-numpy) echo python3-numpy ;; awww|mpvpaper|cliphist) echo "$p" ;; *) printf '%s' "${p%%|*}" ;;
              esac ;;
         apt) case "$p" in
-                pipewire) echo pipewire-bin ;; pipewire-pulse) echo pipewire-pulse ;; qt6-shadertools) echo qt6-shader-baker ;;
+                pipewire) echo pipewire ;; pipewire-audio) echo pipewire-bin ;; pipewire-pulse) echo pipewire-pulse ;; qt6-shadertools) echo qt6-shader-baker ;;
                 "qt6-multimedia-ffmpeg|qt6-multimedia") echo qml6-module-qtmultimedia ;;
                 networkmanager) echo network-manager ;; bluez-utils) echo bluez ;; libnotify) echo libnotify-bin ;;
                 "inter-font|ttf-inter") echo fonts-inter ;; noto-fonts) echo fonts-noto-core ;;
-                noto-fonts-emoji) echo fonts-noto-color-emoji ;; python) echo python3 ;; qt6-declarative|qt6-wayland|qt6-svg) echo "" ;;
+                noto-fonts-emoji) echo fonts-noto-color-emoji ;; python) echo python3 ;; python-numpy) echo python3-numpy ;; qt6-declarative|qt6-wayland|qt6-svg) echo "" ;;
                 usb_modeswitch) echo usb-modeswitch ;;
                 *) printf '%s' "${p%%|*}" ;;
              esac ;;
@@ -529,8 +535,8 @@ offer_full_upgrade() { # offer_full_upgrade <packages about to be installed>
     return 0
 }
 
-# On Arch: build yay-bin from the AUR so packages that are not in the official repositories (awww, mpvpaper, sometimes
-# quickshell) can be installed too.
+# On Arch: build yay-bin from the AUR so packages that are not in the official repositories (such as mpvpaper) can be
+# installed too.
 AUR_HELPER=""
 find_aur_helper() { AUR_HELPER=""; if have yay; then AUR_HELPER=yay; elif have paru; then AUR_HELPER=paru; fi; }
 bootstrap_aur_helper() {

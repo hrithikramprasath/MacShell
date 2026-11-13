@@ -34,13 +34,13 @@ Scope {
     // what each package is for, so the list reads like features rather than package names
     readonly property var groups: [
         { name: I18n.tr("The shell"), about: "Quickshell, Hyprland, Qt and the tools the shell itself uses",
-          pkgs: ["quickshell", "hyprland", "qt6-declarative", "qt6-wayland", "qt6-svg", "qt6-shadertools", "mesa", "curl", "tar", "xdg-utils", "jq", "rsync", "python"] },
+          pkgs: ["quickshell", "hyprland", "qt6-declarative", "qt6-wayland", "qt6-svg", "qt6-shadertools", "mesa", "curl", "tar", "xdg-utils", "xdg-user-dirs", "pciutils", "jq", "rsync", "python", "python-numpy"] },
         { name: I18n.tr("Pictures, video and wallpapers"), about: "Wallpapers, animated wallpapers, thumbnails and pictures",
-          pkgs: ["awww", "mpvpaper", "ffmpeg", "imagemagick", "inotify-tools"] },
+          pkgs: ["awww", "mpvpaper", "socat", "ffmpeg", "imagemagick", "inotify-tools"] },
         { name: I18n.tr("Screenshots and recording"), about: "Screenshots, screen recording, the colour picker and clipboard history",
           pkgs: ["grim", "slurp", "wf-recorder", "hyprpicker", "wl-clipboard", "cliphist", "xdg-desktop-portal-hyprland"] },
         { name: I18n.tr("System controls"), about: "Sound, brightness, Bluetooth, Wi-Fi, Internet Sharing, power, the lock screen and Night Shift",
-          pkgs: ["pipewire", "wireplumber", "pipewire-pulse", "libmysofa", "brightnessctl", "ddcutil", "bluez", "bluez-utils", "usb_modeswitch", "util-linux", "networkmanager", "iw", "wireless-regdb", "power-profiles-daemon", "hypridle", "hyprlock", "hyprsunset", "libnotify", "zenity", "polkit"] },
+          pkgs: ["pipewire", "pipewire-audio", "wireplumber", "pipewire-pulse", "libmysofa", "brightnessctl", "ddcutil", "bluez", "bluez-utils", "usb_modeswitch", "util-linux", "networkmanager", "iw", "wireless-regdb", "power-profiles-daemon", "hypridle", "hyprlock", "hyprsunset", "libnotify", "zenity", "polkit"] },
         { name: I18n.tr("Look and apps"), about: "Fonts, emoji, icons, the terminal and About This Linux",
           pkgs: ["inter-font", "noto-fonts", "noto-fonts-emoji", "papirus-icon-theme", "kitty", "fastfetch"] }
     ]
